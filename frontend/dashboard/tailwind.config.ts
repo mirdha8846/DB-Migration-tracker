@@ -1,0 +1,145 @@
+import type { Config } from "tailwindcss";
+
+const config: Config = {
+  content: [
+    "./src/pages/**/*.{js,ts,jsx,tsx,mdx}",
+    "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
+    "./src/app/**/*.{js,ts,jsx,tsx,mdx}",
+  ],
+  theme: {
+    extend: {
+      colors: {
+        "surface-container-low": "#fff1ea",
+        "primary-fixed": "#ffdbce",
+        "on-background": "#2d1604",
+        "primary-fixed-dim": "#ecbcaa",
+        "surface-container-lowest": "#ffffff",
+        "secondary-fixed-dim": "#a1d494",
+        "on-tertiary-container": "#fe7328",
+        "inverse-on-surface": "#ffede4",
+        "surface-bright": "#fff8f5",
+        "on-tertiary": "#ffffff",
+        "secondary-fixed": "#bcf0ae",
+        background: "#fff8f5",
+        "on-primary-fixed": "#2e140a",
+        "inverse-surface": "#452a16",
+        "tertiary-fixed": "#ffdbcd",
+        "tertiary-container": "#5d2100",
+        surface: "#fff8f5",
+        "surface-container-high": "#ffe3d2",
+        "on-secondary-fixed-variant": "#23501e",
+        "on-tertiary-fixed-variant": "#7c2e00",
+        secondary: "#3b6934",
+        primary: "#32170d",
+        "on-secondary": "#ffffff",
+        "on-primary": "#ffffff",
+        "surface-tint": "#7b5647",
+        "primary-container": "#4b2c20",
+        "on-tertiary-fixed": "#351000",
+        "secondary-container": "#b9eeab",
+        outline: "#83746f",
+        "on-surface-variant": "#504440",
+        "on-surface": "#2d1604",
+        "on-error": "#ffffff",
+        "surface-container": "#ffeade",
+        "inverse-primary": "#ecbcaa",
+        "tertiary-fixed-dim": "#ffb595",
+        "error-container": "#ffdad6",
+        "surface-variant": "#ffdcc6",
+        "on-primary-container": "#bf9282",
+        error: "#ba1a1a",
+        "on-secondary-fixed": "#002201",
+        tertiary: "#3b1200",
+        "on-secondary-container": "#3f6d38",
+        "surface-container-highest": "#ffdcc6",
+        "outline-variant": "#d5c3bd",
+        "on-error-container": "#93000a",
+        "on-primary-fixed-variant": "#613e31",
+        "surface-dim": "#ffd1b3",
+      },
+      spacing: {
+        gutter: "24px",
+        "stack-sm": "8px",
+        "stack-md": "16px",
+        "stack-lg": "32px",
+        "margin-mobile": "16px",
+        "margin-desktop": "40px",
+        "container-max": "1280px",
+      },
+      fontFamily: {
+        display: ["var(--font-space-grotesk)", "sans-serif"],
+        body: ["var(--font-manrope)", "sans-serif"],
+        mono: ["var(--font-jetbrains-mono)", "monospace"],
+        "headline-lg": ["var(--font-space-grotesk)", "sans-serif"],
+        "headline-md": ["var(--font-space-grotesk)", "sans-serif"],
+        "body-md": ["var(--font-manrope)", "sans-serif"],
+        "body-lg": ["var(--font-manrope)", "sans-serif"],
+        "label-sm": ["var(--font-jetbrains-mono)", "monospace"],
+        "label-md": ["var(--font-manrope)", "sans-serif"],
+        "display-lg": ["var(--font-space-grotesk)", "sans-serif"],
+        "code-sm": ["var(--font-jetbrains-mono)", "monospace"],
+      },
+      fontSize: {
+        "display-lg": ["48px", { lineHeight: "56px", letterSpacing: "-0.02em", fontWeight: "700" }],
+        "headline-lg": ["32px", { lineHeight: "40px", fontWeight: "600" }],
+        "headline-md": ["24px", { lineHeight: "32px", fontWeight: "600" }],
+        "body-lg": ["18px", { lineHeight: "28px", fontWeight: "400" }],
+        "body-md": ["16px", { lineHeight: "24px", fontWeight: "400" }],
+        "label-md": ["14px", { lineHeight: "20px", fontWeight: "600" }],
+        "label-sm": ["12px", { lineHeight: "16px", letterSpacing: "0.05em", fontWeight: "500" }],
+        "code-sm": ["13px", { lineHeight: "18px", fontWeight: "400" }],
+      },
+      backgroundImage: {
+        "latte-gradient":
+          "linear-gradient(135deg, #fff8f5 0%, #ffeade 50%, #fff1ea 100%)",
+        "latte-gradient-animated":
+          "linear-gradient(135deg, #fff8f5 0%, #ffeade 50%, #fff1ea 100%)",
+      },
+      animation: {
+        "gradient-shift": "gradientShift 15s ease infinite",
+        "fade-up": "fadeUp 0.8s cubic-bezier(0.22, 1, 0.36, 1) forwards",
+        "pulse-critical": "pulseCritical 2s cubic-bezier(0.4, 0, 0.6, 1) infinite",
+        floating: "floating 6s ease-in-out infinite",
+        "zoom-in": "zoomIn 0.8s cubic-bezier(0.16, 1, 0.3, 1)",
+        "slide-up": "slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards",
+      },
+      keyframes: {
+        gradientShift: {
+          "0%": { backgroundPosition: "0% 50%" },
+          "50%": { backgroundPosition: "100% 50%" },
+          "100%": { backgroundPosition: "0% 50%" },
+        },
+        fadeUp: {
+          from: { opacity: "0", transform: "translateY(30px)" },
+          to: { opacity: "1", transform: "translateY(0)" },
+        },
+        pulseCritical: {
+          "0%, 100%": {
+            boxShadow:
+              "0 0 15px rgba(186, 26, 26, 0.05), inset 0 0 0px rgba(186, 26, 26, 0)",
+          },
+          "50%": {
+            boxShadow:
+              "0 0 25px rgba(186, 26, 26, 0.15), inset 0 0 5px rgba(186, 26, 26, 0.05)",
+          },
+        },
+        floating: {
+          "0%": { transform: "translateY(0px)" },
+          "50%": { transform: "translateY(-10px)" },
+          "100%": { transform: "translateY(0px)" },
+        },
+        zoomIn: {
+          from: { opacity: "0", transform: "scale(0.95)" },
+          to: { opacity: "1", transform: "scale(1)" },
+        },
+        slideUp: {
+          from: { opacity: "0", transform: "translateY(30px)" },
+          to: { opacity: "1", transform: "translateY(0)" },
+        },
+      },
+    },
+  },
+  plugins: [],
+};
+
+export default config;

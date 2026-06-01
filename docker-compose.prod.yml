@@ -1,0 +1,17 @@
+version: '3.9'
+
+# Production overrides — extend docker-compose.yml
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+services:
+  postgres:
+    restart: always
+
+  redis:
+    restart: always
+
+  kafka:
+    restart: always
+
+  zookeeper:
+    restart: always

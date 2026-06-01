@@ -1,0 +1,32 @@
+@import "./design-tokens.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply text-on-surface font-body antialiased overflow-x-hidden;
+    background: linear-gradient(135deg, #fff8f5 0%, #ffeade 50%, #fff1ea 100%);
+    background-size: 400% 400%;
+    animation: gradientShift 15s ease infinite;
+    min-height: 100vh;
+  }
+
+  ::selection {
+    @apply bg-primary-fixed text-on-primary-fixed;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: rgba(123, 86, 71, 0.1);
+    border-radius: 10px;
+  }
+}
