@@ -25,13 +25,13 @@ export const navItems: NavItem[] = [
   { id: "overview", href: "/dashboard", icon: "dashboard", label: "Overview" },
   {
     id: "schema-security",
-    href: "/projects/production-v2/graph",
+    href: "/projects",
     icon: "security",
     label: "Schema Security",
   },
   {
     id: "migration-risk",
-    href: "/migrations/8842-x",
+    href: "/migrations",
     icon: "swap_horiz",
     label: "Migration Risk",
   },

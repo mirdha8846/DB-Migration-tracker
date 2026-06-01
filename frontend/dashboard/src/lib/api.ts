@@ -1,7 +1,17 @@
 import axios from "axios";
+import {
+  AdvisorInsight,
+  ChatMessage,
+  MigrationDetailResponse,
+  OverviewStatsResponse,
+  ProjectGraphResponse,
+  RecentMigration,
+  VaultSecret,
+  VaultStatsResponse,
+} from "@/types";
 
 const api = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080",
+  baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000",
 });
 
 api.interceptors.request.use((config) => {
@@ -24,4 +34,14 @@ api.interceptors.response.use(
   },
 );
 
-export default api;
+export {
+  api,
+  type AdvisorInsight,
+  type ChatMessage,
+  type MigrationDetailResponse,
+  type OverviewStatsResponse,
+  type ProjectGraphResponse,
+  type RecentMigration,
+  type VaultSecret,
+  type VaultStatsResponse,
+};

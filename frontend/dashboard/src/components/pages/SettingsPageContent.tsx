@@ -68,8 +68,8 @@ export function SettingsPageContent() {
                       Full Name
                     </span>
                     <input
-                      defaultValue="Admin User"
-                      className="w-full rounded-xl border border-primary/10 bg-primary/5 px-4 py-3 font-body-md focus:border-primary/30 focus:outline-none"
+                      placeholder="Full Name"
+                      className="w-full rounded-xl border border-primary/10 bg-primary/5 px-4 py-3 font-body-md placeholder:text-on-surface-variant/40 focus:border-primary/30 focus:outline-none"
                     />
                   </label>
                   <label className="block">
@@ -77,8 +77,8 @@ export function SettingsPageContent() {
                       Role
                     </span>
                     <input
-                      defaultValue="Security Architect"
-                      className="w-full rounded-xl border border-primary/10 bg-primary/5 px-4 py-3 font-body-md focus:border-primary/30 focus:outline-none"
+                      placeholder="Role"
+                      className="w-full rounded-xl border border-primary/10 bg-primary/5 px-4 py-3 font-body-md placeholder:text-on-surface-variant/40 focus:border-primary/30 focus:outline-none"
                     />
                   </label>
                   <label className="md:col-span-2">
@@ -86,8 +86,9 @@ export function SettingsPageContent() {
                       Email
                     </span>
                     <input
-                      defaultValue="admin@schemaguard.io"
-                      className="w-full rounded-xl border border-primary/10 bg-primary/5 px-4 py-3 font-body-md focus:border-primary/30 focus:outline-none"
+                      placeholder="Email"
+                      type="email"
+                      className="w-full rounded-xl border border-primary/10 bg-primary/5 px-4 py-3 font-body-md placeholder:text-on-surface-variant/40 focus:border-primary/30 focus:outline-none"
                     />
                   </label>
                 </div>
@@ -125,9 +126,9 @@ export function SettingsPageContent() {
               <div className="glass-panel space-y-4 rounded-2xl p-8">
                 <h2 className="mb-2 font-headline-md text-headline-md text-primary">Integrations</h2>
                 {[
-                  { name: "GitHub", status: "Connected", icon: "code" },
-                  { name: "Slack", status: "Connected", icon: "chat" },
-                  { name: "Anthropic Claude", status: "Connected", icon: "smart_toy" },
+                  { name: "GitHub", status: "Not Configured", icon: "code" },
+                  { name: "Slack", status: "Not Configured", icon: "chat" },
+                  { name: "Anthropic Claude", status: "Not Configured", icon: "smart_toy" },
                 ].map((integration) => (
                   <div
                     key={integration.name}

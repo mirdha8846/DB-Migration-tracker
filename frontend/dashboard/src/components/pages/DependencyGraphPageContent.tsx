@@ -1,11 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { DashboardShell } from "@/components/layout/DashboardShell";
 import { MaterialIcon } from "@/components/ui/MaterialIcon";
 import { cn } from "@/lib/utils";
+import { api } from "@/lib/api";
+import { GraphNode, ProjectGraphResponse } from "@/types";
+
+type Props = {
+  projectId: string;
+};
 
 type NodeDetails = {
+  id: string;
   title: string;
   type: string;
   risk: "Critical" | "High" | "Medium" | "Low";
@@ -14,94 +21,12 @@ type NodeDetails = {
   iconClass: string;
 };
 
-const nodes: Array<{
-  id: string;
-  title: string;
-  subtitle: string;
-  top: string;
-  left: string;
-  size: "lg" | "md" | "sm";
-  kind: "service" | "table";
-  risk: NodeDetails["risk"];
-  delay: string;
-  icon: string;
-  innerClass: string;
-  borderClass: string;
-  badge?: "pulse" | "dot";
-}> = [
-  {
-    id: "order",
-    title: "Order Service",
-    subtitle: "",
-    top: "30%",
-    left: "38%",
-    size: "lg",
-    kind: "service",
-    risk: "High",
-    delay: "-1s",
-    icon: "hub",
-    innerClass: "bg-primary-container",
-    borderClass: "border-primary/20 group-hover:border-primary",
-  },
-  {
-    id: "inventory",
-    title: "Inventory Sync",
-    subtitle: "",
-    top: "58%",
-    left: "22%",
-    size: "md",
-    kind: "service",
-    risk: "Medium",
-    delay: "-3s",
-    icon: "sync_alt",
-    innerClass: "bg-primary/80",
-    borderClass: "border-primary/10 group-hover:border-primary",
-  },
-  {
-    id: "users",
-    title: "production.users",
-    subtitle: "",
-    top: "48%",
-    left: "52%",
-    size: "lg",
-    kind: "table",
-    risk: "Low",
-    delay: "-0.5s",
-    icon: "table_chart",
-    innerClass: "bg-secondary-container",
-    borderClass: "border-secondary/20 group-hover:border-secondary",
-    badge: "dot",
-  },
-  {
-    id: "tx",
-    title: "production.tx_logs",
-    subtitle: "",
-    top: "62%",
-    left: "68%",
-    size: "lg",
-    kind: "table",
-    risk: "Critical",
-    delay: "-2s",
-    icon: "table_rows",
-    innerClass: "bg-error-container",
-    borderClass: "border-error/40 group-hover:border-error",
-    badge: "pulse",
-  },
-  {
-    id: "analytics",
-    title: "Analytics UI",
-    subtitle: "",
-    top: "28%",
-    left: "78%",
-    size: "md",
-    kind: "service",
-    risk: "Low",
-    delay: "-4s",
-    icon: "insights",
-    innerClass: "bg-tertiary",
-    borderClass: "border-tertiary/20 group-hover:border-tertiary",
-  },
-];
+function riskToLabel(risk: string): NodeDetails["risk"] {
+  if (risk === "CRITICAL") return "Critical";
+  if (risk === "HIGH") return "High";
+  if (risk === "MEDIUM") return "Medium";
+  return "Low";
+}
 
 function getRiskStyles(risk: NodeDetails["risk"]) {
   if (risk === "Critical") {
@@ -113,26 +38,80 @@ function getRiskStyles(risk: NodeDetails["risk"]) {
   return { width: "25%", bar: "bg-secondary/40", text: "text-secondary font-bold opacity-60" };
 }
 
-export function DependencyGraphPageContent() {
+function visualNode(node: GraphNode, idx: number) {
+  const isTable = node.type === "table";
+  const isCritical = node.riskLevel === "CRITICAL";
+  return {
+    id: node.id,
+    title: node.label,
+    top: `${node.y ?? 30 + idx * 8}%`,
+    left: `${node.x ?? 20 + idx * 10}%`,
+    size: isTable ? ("lg" as const) : ("md" as const),
+    kind: node.type,
+    risk: riskToLabel(node.riskLevel ?? "LOW"),
+    delay: `-${idx + 1}s`,
+    icon: isTable ? "table_chart" : "hub",
+    innerClass: isTable
+      ? isCritical
+        ? "bg-error-container"
+        : "bg-secondary-container"
+      : "bg-primary-container",
+    borderClass: isTable
+      ? isCritical
+        ? "border-error/40 group-hover:border-error"
+        : "border-secondary/20 group-hover:border-secondary"
+      : "border-primary/20 group-hover:border-primary",
+    badge: isCritical ? ("pulse" as const) : isTable ? ("dot" as const) : undefined,
+  };
+}
+
+export function DependencyGraphPageContent({ projectId }: Props) {
+  const [graph, setGraph] = useState<ProjectGraphResponse | null>(null);
+  const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<NodeDetails | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  const openNode = (node: (typeof nodes)[0]) => {
-    const isTable = node.kind === "table";
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await api.get<ProjectGraphResponse>(`/api/projects/${projectId}/graph`);
+        setGraph(res.data);
+      } catch {
+        /* empty */
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [projectId]);
+
+  const openNode = (node: GraphNode) => {
+    const isTable = node.type === "table";
     setSelected({
-      title: node.title,
+      id: node.id,
+      title: node.label,
       type: isTable ? "Database Table" : "Service",
-      risk: node.risk,
+      risk: riskToLabel(node.riskLevel ?? "LOW"),
       icon: isTable ? "table_chart" : "hub",
-      iconContainerClass: isTable
-        ? "bg-secondary-container"
-        : "bg-surface-container-highest",
+      iconContainerClass: isTable ? "bg-secondary-container" : "bg-surface-container-highest",
       iconClass: isTable ? "text-secondary" : "text-primary",
     });
     setSidebarOpen(true);
   };
 
   const riskStyles = selected ? getRiskStyles(selected.risk) : null;
+  const nodes = graph?.nodes.map((n, i) => visualNode(n, i)) ?? [];
+
+  if (loading) {
+    return (
+      <DashboardShell
+        variant="graph"
+        active="schema-security"
+        mainClassName="ml-64 mt-16 min-h-screen flex items-center justify-center"
+      >
+        <p className="text-on-surface-variant">Loading dependency graph...</p>
+      </DashboardShell>
+    );
+  }
 
   return (
     <DashboardShell
@@ -157,10 +136,23 @@ export function DependencyGraphPageContent() {
 
       <div className="relative h-full w-full" id="dependency-canvas">
         <svg className="pointer-events-none absolute inset-0 h-full w-full opacity-30">
-          <line stroke="#32170D" strokeDasharray="4" strokeWidth="2" x1="40%" x2="55%" y1="35%" y2="50%" />
-          <line stroke="#32170D" strokeWidth="2" x1="55%" x2="70%" y1="50%" y2="65%" />
-          <line stroke="#32170D" strokeWidth="2" x1="25%" x2="55%" y1="60%" y2="50%" />
-          <line stroke="#32170D" strokeWidth="2" x1="55%" x2="80%" y1="50%" y2="30%" />
+          {graph?.edges.map((edge) => {
+            const source = graph.nodes.find((n) => n.id === edge.source);
+            const target = graph.nodes.find((n) => n.id === edge.target);
+            if (!source || !target) return null;
+            return (
+              <line
+                key={`${edge.source}-${edge.target}`}
+                stroke="#32170D"
+                strokeDasharray={edge.type === "dashed" ? "4" : undefined}
+                strokeWidth="2"
+                x1={`${source.x ?? 40}%`}
+                x2={`${target.x ?? 55}%`}
+                y1={`${source.y ?? 35}%`}
+                y2={`${target.y ?? 50}%`}
+              />
+            );
+          })}
         </svg>
 
         {nodes.map((node) => {
@@ -176,7 +168,7 @@ export function DependencyGraphPageContent() {
               type="button"
               className="group absolute cursor-pointer animate-floating text-left"
               style={{ top: node.top, left: node.left, animationDelay: node.delay }}
-              onClick={() => openNode(node)}
+              onClick={() => openNode(graph!.nodes.find(n => n.id === node.id)!)}
             >
               <div
                 className={cn(
@@ -194,7 +186,13 @@ export function DependencyGraphPageContent() {
                 >
                   <MaterialIcon
                     name={node.icon}
-                    className={node.kind === "table" && node.risk === "Critical" ? "text-error" : node.kind === "table" ? "text-secondary" : "text-primary-fixed"}
+                    className={
+                      node.kind === "table" && node.risk === "Critical"
+                        ? "text-error"
+                        : node.kind === "table"
+                          ? "text-secondary"
+                          : "text-primary-fixed"
+                    }
                     size={iconSize}
                   />
                   {node.badge === "dot" && (
@@ -208,9 +206,7 @@ export function DependencyGraphPageContent() {
               <p
                 className={cn(
                   "mt-2 whitespace-nowrap text-center font-label-sm text-label-sm",
-                  node.title.includes("production") || node.title === "Order Service"
-                    ? "font-semibold text-on-surface"
-                    : "text-on-surface-variant",
+                  "font-semibold text-on-surface",
                 )}
               >
                 {node.title}
@@ -266,38 +262,6 @@ export function DependencyGraphPageContent() {
                   <span className={cn("font-label-sm text-label-sm font-bold", riskStyles.text)}>
                     {selected.risk.toUpperCase()}
                   </span>
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                <p className="font-label-sm text-label-sm uppercase tracking-wider text-on-surface-variant">
-                  Upstream Dependencies
-                </p>
-                <div className="space-y-2">
-                  {["Users Repository", "Auth Microservice"].map((dep) => (
-                    <div
-                      key={dep}
-                      className="flex items-center justify-between rounded-lg border border-outline-variant/20 bg-white/60 p-3 shadow-sm"
-                    >
-                      <span className="font-body-md text-body-md text-on-surface">{dep}</span>
-                      <MaterialIcon name="arrow_forward_ios" className="text-on-surface-variant" size={18} />
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="rounded-xl border border-outline-variant/20 bg-white/60 p-4 shadow-sm">
-                  <p className="mb-1 text-[10px] uppercase tracking-widest text-on-surface-variant">
-                    Impact Radius
-                  </p>
-                  <p className="font-headline-lg text-[24px] text-primary">12</p>
-                </div>
-                <div className="rounded-xl border border-outline-variant/20 bg-white/60 p-4 shadow-sm">
-                  <p className="mb-1 text-[10px] uppercase tracking-widest text-on-surface-variant">
-                    Latency
-                  </p>
-                  <p className="font-headline-lg text-[24px] text-primary">42ms</p>
                 </div>
               </div>
             </div>

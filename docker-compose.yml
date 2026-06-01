@@ -123,6 +123,20 @@ services:
     volumes:
       - grafana_data:/var/lib/grafana
 
+  # ─── SchemaGuard Backend (Express API) ──────────────────────────
+  backend:
+    build: ./backend
+    container_name: sg_backend
+    ports:
+      - "4000:4000"
+    environment:
+      - PORT=4000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
 volumes:
   pg_data:
   redis_data:

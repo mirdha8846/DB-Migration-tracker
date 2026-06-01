@@ -1,42 +1,66 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
 import { DashboardShell } from "@/components/layout/DashboardShell";
 import { MaterialIcon } from "@/components/ui/MaterialIcon";
-
-const vaultEntries = [
-  {
-    name: "Production DB Credentials",
-    type: "PostgreSQL",
-    scope: "production-v2",
-    lastRotated: "Oct 18, 2026",
-    status: "Active",
-    statusClass: "bg-secondary/10 text-secondary border-secondary/20",
-  },
-  {
-    name: "GitHub App Private Key",
-    type: "GitHub Integration",
-    scope: "org-wide",
-    lastRotated: "Sep 02, 2026",
-    status: "Active",
-    statusClass: "bg-secondary/10 text-secondary border-secondary/20",
-  },
-  {
-    name: "Anthropic API Key",
-    type: "AI Agent",
-    scope: "advisor-service",
-    lastRotated: "Aug 14, 2026",
-    status: "Expiring",
-    statusClass: "bg-tertiary-fixed text-on-tertiary-fixed-variant border-tertiary/20",
-  },
-  {
-    name: "Slack Webhook Secret",
-    type: "Notifications",
-    scope: "alerts-channel",
-    lastRotated: "Jul 30, 2026",
-    status: "Revoked",
-    statusClass: "bg-error/10 text-error border-error/20",
-  },
-];
+import { api } from "@/lib/api";
+import { VaultSecret, VaultStatsResponse } from "@/types";
 
 export function VaultAccessPageContent() {
+  const [stats, setStats] = useState<VaultStatsResponse>({
+    storedSecrets: 0,
+    activeGrants: 0,
+    rotationsDue: 0,
+  });
+  const [newSecretName, setNewSecretName] = useState("");
+  const [newSecretType, setNewSecretType] = useState("");
+  const [newSecretScope, setNewSecretScope] = useState("");
+  const [vaultEntries, setVaultEntries] = useState<VaultSecret[]>([]);
+
+  const load = async () => {
+    try {
+      const [s, secrets] = await Promise.all([
+        api.get<VaultStatsResponse>("/api/vault/stats"),
+        api.get<VaultSecret[]>("/api/vault/secrets"),
+      ]);
+      setStats(s.data);
+      setVaultEntries(secrets.data);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  useEffect(() => {
+    void load();
+  }, []);
+
+  const statusClass = useMemo(
+    () => ({
+      ACTIVE: "bg-secondary/10 text-secondary border-secondary/20",
+      EXPIRING: "bg-tertiary-fixed text-on-tertiary-fixed-variant border-tertiary/20",
+      REVOKED: "bg-error/10 text-error border-error/20",
+    }),
+    [],
+  );
+
+  const addSecret = async () => {
+    if (!newSecretName.trim() || !newSecretType.trim() || !newSecretScope.trim()) return;
+    await api.post<VaultSecret>("/api/vault/secrets", {
+      name: newSecretName.trim(),
+      type: newSecretType.trim(),
+      scope: newSecretScope.trim(),
+    });
+    setNewSecretName("");
+    setNewSecretType("");
+    setNewSecretScope("");
+    await load();
+  };
+
+  const rotateSecret = async (id: string) => {
+    await api.put<VaultSecret>(`/api/vault/secrets/${id}/rotate`);
+    await load();
+  };
+
   return (
     <DashboardShell
       variant="detail"
@@ -56,9 +80,9 @@ export function VaultAccessPageContent() {
 
         <div className="mb-stack-lg grid grid-cols-1 gap-gutter md:grid-cols-3">
           {[
-            { icon: "key", label: "Stored Secrets", value: "24", sub: "+3 this month" },
-            { icon: "verified_user", label: "Active Access Grants", value: "11", sub: "2 pending review" },
-            { icon: "schedule", label: "Rotations Due", value: "02", sub: "Next in 4 days" },
+            { icon: "key", label: "Stored Secrets", value: String(stats.storedSecrets), sub: "live" },
+            { icon: "verified_user", label: "Active Access Grants", value: String(stats.activeGrants), sub: "live" },
+            { icon: "schedule", label: "Rotations Due", value: String(stats.rotationsDue).padStart(2, "0"), sub: "live" },
           ].map((stat) => (
             <div key={stat.label} className="glass-card rounded-2xl p-6">
               <MaterialIcon name={stat.icon} className="mb-4 text-primary" size={28} />
@@ -77,7 +101,28 @@ export function VaultAccessPageContent() {
                 All secrets are encrypted at rest with Vault-KMS
               </p>
             </div>
-            <button className="rounded-xl bg-primary px-6 py-2.5 font-label-md text-label-md text-on-primary transition-all hover:brightness-110">
+          </div>
+
+          <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-4">
+            <input
+              placeholder="Name"
+              value={newSecretName}
+              onChange={(e) => setNewSecretName(e.target.value)}
+              className="rounded-xl border border-primary/10 bg-primary/5 px-4 py-2.5 font-body-md placeholder:text-on-surface-variant/40 focus:border-primary/30 focus:outline-none"
+            />
+            <input
+              placeholder="Type (e.g. PostgreSQL)"
+              value={newSecretType}
+              onChange={(e) => setNewSecretType(e.target.value)}
+              className="rounded-xl border border-primary/10 bg-primary/5 px-4 py-2.5 font-body-md placeholder:text-on-surface-variant/40 focus:border-primary/30 focus:outline-none"
+            />
+            <input
+              placeholder="Scope (e.g. production-v2)"
+              value={newSecretScope}
+              onChange={(e) => setNewSecretScope(e.target.value)}
+              className="rounded-xl border border-primary/10 bg-primary/5 px-4 py-2.5 font-body-md placeholder:text-on-surface-variant/40 focus:border-primary/30 focus:outline-none"
+            />
+            <button onClick={addSecret} className="rounded-xl bg-primary px-6 py-2.5 font-label-md text-label-md text-on-primary transition-all hover:brightness-110">
               Add Secret
             </button>
           </div>
@@ -103,14 +148,14 @@ export function VaultAccessPageContent() {
                     <td className="py-5 font-body-md text-on-surface-variant/80">{entry.lastRotated}</td>
                     <td className="py-5">
                       <span
-                        className={`rounded-full border px-3 py-1 text-[11px] font-bold uppercase ${entry.statusClass}`}
+                        className={`rounded-full border px-3 py-1 text-[11px] font-bold uppercase ${statusClass[entry.status]}`}
                       >
                         {entry.status}
                       </span>
                     </td>
                     <td className="py-5 text-right">
-                      <button className="font-label-sm font-bold text-primary hover:underline">
-                        Manage
+                      <button onClick={() => rotateSecret(entry.id)} className="font-label-sm font-bold text-primary hover:underline">
+                        Rotate
                       </button>
                     </td>
                   </tr>

@@ -1,5 +1,9 @@
 import { DependencyGraphPageContent } from "@/components/pages/DependencyGraphPageContent";
 
-export default function DependencyGraphPage() {
-  return <DependencyGraphPageContent />;
+type Props = {
+  params: { id: string };
+};
+
+export default function DependencyGraphPage({ params }: Props) {
+  return <DependencyGraphPageContent projectId={params.id} />;
 }

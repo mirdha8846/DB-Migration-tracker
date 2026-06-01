@@ -1,65 +1,81 @@
+/* eslint-disable @next/next/no-img-element */
+"use client";
+
 import Image from "next/image";
+import { useEffect, useMemo, useState } from "react";
 import { RevealOnScroll } from "@/components/effects/RevealOnScroll";
 import { DashboardShell } from "@/components/layout/DashboardShell";
 import { MaterialIcon } from "@/components/ui/MaterialIcon";
+import { api } from "@/lib/api";
 import { AVATARS } from "@/lib/constants";
-
-const changes = [
-  {
-    type: "Add Column",
-    object: "metadata",
-    target: "orders (table)",
-    impact: "Moderate",
-    impactClass: "bg-secondary-container text-on-secondary-container border-secondary/20",
-  },
-  {
-    type: "Create Index",
-    object: "idx_orders_metadata",
-    target: "orders (table)",
-    impact: "Low",
-    impactClass: "bg-surface-container-high text-on-surface-variant border-outline-variant/20",
-  },
-  {
-    type: "Constraint",
-    object: "fk_user_sync",
-    target: "users (table)",
-    impact: "Critical",
-    impactClass: "bg-error/10 text-error border-error/20",
-  },
-];
-
-const deploySteps = [
-  {
-    num: "01",
-    title: "Database Update",
-    desc: "Run SQL migration scripts against 'master' node clusters.",
-    highlight: false,
-  },
-  {
-    num: "02",
-    title: "API Sync",
-    desc: "Deploy schema bindings to OrderService containers.",
-    highlight: false,
-  },
-  {
-    num: "03",
-    title: "Cache Invalidation",
-    desc: "Flush Redis tags matching order_metadata.* glob.",
-    highlight: false,
-  },
-  {
-    num: "04",
-    title: "Final Verify",
-    desc: "Automatic smoke test of JSONB ingestion paths.",
-    highlight: true,
-  },
-];
+import { MigrationDetailResponse } from "@/types";
 
 type Props = {
   migrationId: string;
 };
 
 export function MigrationDetailPageContent({ migrationId }: Props) {
+  const [data, setData] = useState<MigrationDetailResponse | null>(null);
+  const [actionMsg, setActionMsg] = useState("");
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const res = await api.get<MigrationDetailResponse>(`/api/migrations/${migrationId}`);
+        setData(res.data);
+      } catch {
+        /* ignore */
+      }
+    };
+    void load();
+  }, [migrationId]);
+
+  const deploySteps = useMemo(
+    () =>
+      (data?.deployOrder ?? []).map((desc, idx) => ({
+        num: String(idx + 1).padStart(2, "0"),
+        title: `Step ${idx + 1}`,
+        desc,
+        highlight: idx === 3,
+      })),
+    [data],
+  );
+
+  const handleApprove = async () => {
+    try {
+      await api.post(`/api/migrations/${migrationId}/approve`);
+      setActionMsg("Approved and deployment triggered.");
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const handleReject = async () => {
+    try {
+      await api.post(`/api/migrations/${migrationId}/reject`, {
+        reason: "Manual reviewer rejection",
+      });
+      setActionMsg("Rejected and reviewer note saved.");
+    } catch {
+      /* ignore */
+    }
+  };
+
+  if (!data) {
+    return (
+      <DashboardShell variant="detail" active="migration-risk" migrationId={migrationId} mainClassName="ml-64 mt-16 min-h-screen p-margin-desktop">
+        <div className="glass-panel rounded-2xl p-8">Loading migration details...</div>
+      </DashboardShell>
+    );
+  }
+
+  const impactClass: Record<string, string> = {
+    LOW: "bg-surface-container-high text-on-surface-variant border-outline-variant/20",
+    MODERATE: "bg-secondary-container text-on-secondary-container border-secondary/20",
+    HIGH: "bg-tertiary-fixed text-on-tertiary-fixed-variant border-tertiary/20",
+    CRITICAL: "bg-error/10 text-error border-error/20",
+  };
+
   return (
     <>
       <RevealOnScroll />
@@ -79,22 +95,21 @@ export function MigrationDetailPageContent({ migrationId }: Props) {
                 <MaterialIcon name="chevron_right" className="text-[14px]" />
                 <span className="font-label-sm font-bold text-primary">Migrations</span>
               </nav>
-              <h1 className="font-display-lg text-4xl tracking-tight text-on-surface">
-                Expand &apos;orders&apos; JSONB field
-              </h1>
+              <h1 className="font-display-lg text-4xl tracking-tight text-on-surface">{data.title}</h1>
               <p className="mt-1 font-body-md text-on-surface-variant/70">
-                Submitted by <span className="font-bold text-tertiary">k_yamamoto</span> • 2 hours ago
+                Submitted by <span className="font-bold text-tertiary">{data.author}</span> • {data.createdAt}
               </p>
             </div>
             <div className="flex items-center gap-3">
-              <button className="rounded-xl border border-primary/10 px-6 py-2.5 font-body-md font-bold text-primary transition-all hover:bg-primary/5">
+              <button onClick={handleReject} className="rounded-xl border border-primary/10 px-6 py-2.5 font-body-md font-bold text-primary transition-all hover:bg-primary/5">
                 Reject Migration
               </button>
-              <button className="rounded-xl bg-primary px-8 py-2.5 font-body-md font-bold text-on-primary transition-all hover:shadow-xl hover:shadow-primary/20">
+              <button onClick={handleApprove} className="rounded-xl bg-primary px-8 py-2.5 font-body-md font-bold text-on-primary transition-all hover:shadow-xl hover:shadow-primary/20">
                 Approve &amp; Deploy
               </button>
             </div>
           </section>
+          {actionMsg && <p className="mb-4 rounded-xl bg-secondary/10 px-4 py-2 font-label-sm text-secondary">{actionMsg}</p>}
 
           <div className="grid grid-cols-1 gap-gutter lg:grid-cols-12">
             <div className="space-y-gutter lg:col-span-8">
@@ -102,7 +117,7 @@ export function MigrationDetailPageContent({ migrationId }: Props) {
                 <div className="flex items-center justify-between border-b border-outline-variant/10 bg-surface-container-high/30 px-6 py-4">
                   <div className="flex items-center gap-2">
                     <MaterialIcon name="terminal" className="text-[20px] text-tertiary" />
-                    <span className="font-label-sm font-bold text-primary">v1.2.4_expand_orders.sql</span>
+                    <span className="font-label-sm font-bold text-primary">{data.filePath}</span>
                   </div>
                   <button className="group flex items-center gap-2 text-on-surface-variant transition-colors hover:text-primary">
                     <MaterialIcon
@@ -114,25 +129,7 @@ export function MigrationDetailPageContent({ migrationId }: Props) {
                 </div>
                 <div className="code-syntax overflow-x-auto p-6 shadow-inner">
                   <pre className="text-sm leading-relaxed">
-                    <code className="block py-2">
-                      <span className="sql-comment">{`-- MIGRATION: 8842-X
--- TARGET: public.orders
--- RISK: HIGH (Structural Mutation)
-
-`}</span>
-                      <span className="sql-keyword">ALTER TABLE</span> public.orders{"\n"}
-                      <span className="sql-keyword">ADD COLUMN IF NOT EXISTS</span> metadata jsonb{" "}
-                      <span className="sql-keyword">DEFAULT</span> {"'{}'::jsonb"};{"\n\n"}
-                      <span className="sql-keyword">CREATE INDEX CONCURRENTLY</span> idx_orders_metadata_type{"\n"}
-                      <span className="sql-keyword">ON</span> public.orders{" "}
-                      <span className="sql-keyword">USING</span> GIN ((metadata-&gt;
-                      <span className="sql-string">&apos;order_type&apos;</span>));{"\n\n"}
-                      <span className="sql-comment">-- WARNING: Potential lock-wait on high-volume table</span>
-                      {"\n"}
-                      <span className="sql-keyword">COMMENT ON COLUMN</span> public.orders.metadata{" "}
-                      <span className="sql-keyword">IS</span>{" "}
-                      <span className="sql-string">&apos;Extended order details&apos;</span>;
-                    </code>
+                    <code className="block whitespace-pre-wrap py-2">{data.fileContent}</code>
                   </pre>
                 </div>
               </div>
@@ -157,16 +154,16 @@ export function MigrationDetailPageContent({ migrationId }: Props) {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-outline-variant/5">
-                      {changes.map((row) => (
+                      {data.detectedChanges.map((row) => (
                         <tr key={row.object} className="group transition-colors hover:bg-primary-fixed/20">
                           <td className="py-5 font-body-md font-bold text-on-surface">{row.type}</td>
                           <td className="py-5 font-label-sm text-on-surface-variant">{row.object}</td>
                           <td className="py-5 font-body-md text-primary">{row.target}</td>
                           <td className="py-5 text-right">
                             <span
-                              className={`rounded-full border px-3 py-1 text-[11px] font-bold uppercase tracking-wider ${row.impactClass}`}
+                              className={`rounded-full border px-3 py-1 text-[11px] font-bold uppercase tracking-wider ${impactClass[row.impact]}`}
                             >
-                              {row.impact}
+                              {row.impact.toLowerCase()}
                             </span>
                           </td>
                         </tr>
@@ -189,18 +186,16 @@ export function MigrationDetailPageContent({ migrationId }: Props) {
                     </div>
                   </div>
                 </div>
-                <h3 className="mb-3 font-headline-lg text-2xl text-error">High Risk (Level 4)</h3>
+                <h3 className="mb-3 font-headline-lg text-2xl text-error">{data.riskLevel} Risk (Level {data.riskScore})</h3>
                 <p className="mb-8 font-body-md leading-relaxed text-on-surface-variant/80">
-                  Concurrent index creation detected on a table with{" "}
-                  <span className="font-bold text-primary">5M+ records</span>. Potential for
-                  write-lock contention.
+                  {data.aiInsights[0] ?? "No additional insights available."}
                 </p>
                 <div className="flex w-full justify-between rounded-2xl bg-error px-5 py-4 text-on-error shadow-lg shadow-error/10">
                   <div className="flex items-center gap-2">
                     <MaterialIcon name="warning" className="text-[20px]" />
                     <span className="font-label-sm font-bold">Locking Threat</span>
                   </div>
-                  <span className="font-label-sm font-black uppercase">Severe</span>
+                  <span className="font-label-sm font-black uppercase">{data.lockingThreat}</span>
                 </div>
               </div>
 
@@ -214,39 +209,13 @@ export function MigrationDetailPageContent({ migrationId }: Props) {
                 </div>
                 <div className="relative space-y-6">
                   <div className="font-body-md leading-relaxed text-on-surface-variant">
-                    <p>
-                      I&apos;ve analyzed the{" "}
-                      <code className="rounded bg-tertiary-fixed px-1.5 font-bold text-tertiary-container">
-                        ALTER TABLE
-                      </code>{" "}
-                      operation. While the{" "}
-                      <code className="rounded bg-tertiary-fixed px-1.5 font-bold text-tertiary-container">
-                        CONCURRENTLY
-                      </code>{" "}
-                      keyword is present, be advised of the following:
-                    </p>
+                    <p>I&apos;ve analyzed the migration. Live DB introspection reports:</p>
                     <ul className="mt-6 space-y-3">
-                      <li className="flex gap-3">
-                        <MaterialIcon name="check_circle" className="mt-1 text-[18px] text-secondary" />
-                        <span>
-                          Table <code className="rounded bg-surface-container-high px-1 font-bold">orders</code> is
-                          currently experiencing{" "}
-                          <span className="font-bold text-primary">1.2k req/sec</span>.
-                        </span>
-                      </li>
-                      <li className="flex gap-3">
-                        <MaterialIcon name="check_circle" className="mt-1 text-[18px] text-secondary" />
-                        <span>
-                          Transaction wraparound protection is active; this migration may extend vacuum
-                          duration.
-                        </span>
-                      </li>
-                      <li className="flex gap-3">
-                        <MaterialIcon name="info" className="mt-1 text-[18px] text-on-tertiary-container" />
-                        <span>
-                          <strong>Recommendation:</strong> Schedule during the 02:00 UTC window.
-                        </span>
-                      </li>
+                      <li className="flex gap-3"><MaterialIcon name="check_circle" className="mt-1 text-[18px] text-secondary" /><span>Table <code className="rounded bg-surface-container-high px-1 font-bold">orders</code> is currently experiencing <span className="font-bold text-primary">{(data.liveDbStats.reqPerSec / 1000).toFixed(1)}k req/sec</span>.</span></li>
+                      <li className="flex gap-3"><MaterialIcon name="check_circle" className="mt-1 text-[18px] text-secondary" /><span>Transaction wraparound protection is {data.liveDbStats.vacuumActive ? "active" : "inactive"}.</span></li>
+                      {data.aiInsights.slice(0, 1).map((insight) => (
+                        <li key={insight} className="flex gap-3"><MaterialIcon name="info" className="mt-1 text-[18px] text-on-tertiary-container" /><span>{insight}</span></li>
+                      ))}
                     </ul>
                   </div>
                   <div className="border-t border-outline-variant/10 pt-6">

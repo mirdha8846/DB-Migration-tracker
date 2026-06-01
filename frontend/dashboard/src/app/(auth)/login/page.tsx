@@ -2,15 +2,44 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { FormEvent, useState } from "react";
 import { setToken } from "@/lib/auth";
 import { MaterialIcon } from "@/components/ui/MaterialIcon";
 
 export default function LoginPage() {
   const router = useRouter();
+  const [email, setEmail] = useState("admin@schemaguard.io");
+  const [password, setPassword] = useState("admin123");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const handleContinue = () => {
-    setToken("demo-jwt-token");
-    router.push("/dashboard");
+  const handleLogin = async (e: FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"}/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Login failed");
+        return;
+      }
+
+      setToken(data.token);
+      router.push("/dashboard");
+    } catch {
+      setError("Cannot connect to server");
+    } finally {
+      setLoading(false);
+    }
+
+    return undefined;
   };
 
   return (
@@ -24,23 +53,32 @@ export default function LoginPage() {
         <p className="mt-2 font-body-md text-on-surface-variant/70">
           Access your migration risk dashboard
         </p>
-        <div className="mt-8 space-y-4">
+        <form onSubmit={handleLogin} className="mt-8 space-y-4">
+          {error && (
+            <p className="rounded-lg bg-error/10 px-4 py-3 text-sm text-error">{error}</p>
+          )}
           <input
             className="w-full rounded-xl border border-primary/10 bg-primary/5 px-4 py-3 font-body-md focus:border-primary/30 focus:outline-none"
             placeholder="Email"
             type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
           />
           <input
             className="w-full rounded-xl border border-primary/10 bg-primary/5 px-4 py-3 font-body-md focus:border-primary/30 focus:outline-none"
             placeholder="Password"
             type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
           />
           <button
-            type="button"
-            onClick={handleContinue}
-            className="block w-full rounded-xl bg-primary py-3 text-center font-label-md text-label-md text-on-primary transition-all hover:brightness-110"
+            type="submit"
+            disabled={loading}
+            className="block w-full rounded-xl bg-primary py-3 text-center font-label-md text-label-md text-on-primary transition-all hover:brightness-110 disabled:opacity-50"
           >
-            Continue to Dashboard
+            {loading ? "Signing in..." : "Continue to Dashboard"}
           </button>
           <p className="text-center font-label-sm text-on-surface-variant/60">
             No account?{" "}
@@ -48,7 +86,7 @@ export default function LoginPage() {
               Register
             </Link>
           </p>
-        </div>
+        </form>
       </div>
     </main>
   );
