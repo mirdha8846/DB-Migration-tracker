@@ -1,9 +1,13 @@
+import db from "../config/db";
+
 export interface DetectedChange {
   changeType: string;
   tableName: string;
   columnName?: string;
   riskLevel: "low" | "medium" | "high" | "critical";
   lockingThreat?: "LOW" | "MODERATE" | "SEVERE" | "HIGH";
+  crossTableWarning?: string;
+  sameColumnInOtherTables?: string[];
 }
 
 const DETECTION_RULES: Array<{
@@ -14,8 +18,8 @@ const DETECTION_RULES: Array<{
 }> = [
   { regex: /DROP\s+TABLE\s+IF\s+EXISTS\s+(\w+)/i, changeType: "drop_table", risk: "critical", lockingThreat: "SEVERE" },
   { regex: /DROP\s+TABLE\s+(?!IF)(\w+)/i, changeType: "drop_table", risk: "critical", lockingThreat: "SEVERE" },
-  { regex: /DROP\s+COLUMN\s+IF\s+EXISTS\s+(\w+)/i, changeType: "drop_column", risk: "critical" },
-  { regex: /DROP\s+COLUMN\s+(?!IF)(\w+)/i, changeType: "drop_column", risk: "critical" },
+  { regex: /ALTER\s+TABLE\s+(\w+)\s+DROP\s+COLUMN\s+IF\s+EXISTS\s+(\w+)/i, changeType: "drop_column", risk: "critical" },
+  { regex: /ALTER\s+TABLE\s+(\w+)\s+DROP\s+COLUMN\s+(\w+)/i, changeType: "drop_column", risk: "critical" },
   { regex: /ALTER\s+TABLE\s+(\w+)\s+RENAME\s+COLUMN\s+(\w+)\s+TO\s+(\w+)/i, changeType: "rename_column", risk: "high" },
   { regex: /ALTER\s+TABLE\s+(\w+)\s+ALTER\s+COLUMN\s+(\w+)\s+TYPE\s+(\w+)/i, changeType: "alter_column_type", risk: "high" },
   { regex: /RENAME\s+COLUMN\s+(\w+)\.(\w+)\s+TO\s+(\w+)/i, changeType: "rename_column", risk: "high" },
@@ -91,4 +95,65 @@ export function getLockingThreat(changes: DetectedChange[]): DetectedChange["loc
   if (changes.some((c) => c.lockingThreat === "HIGH")) return "HIGH";
   if (changes.some((c) => c.lockingThreat === "MODERATE")) return "MODERATE";
   return "LOW";
+}
+
+// ─── Cross-table column consistency check ───────────────────
+export interface CrossTableWarning {
+  columnName: string;
+  changedInTable: string;
+  sameColumnInTables: string[];
+  affectedServicesPerTable: Record<string, string[]>;
+  warning: string;
+}
+
+export async function checkCrossTableColumns(
+  projectId: string,
+  changes: DetectedChange[],
+): Promise<CrossTableWarning[]> {
+  const warnings: CrossTableWarning[] = [];
+
+  for (const change of changes) {
+    if (!change.columnName) continue;
+
+    // For rename: columnName is "old_name → new_name", extract the old name
+    let checkColumnName = change.columnName;
+    if (checkColumnName.includes(" → ")) {
+      checkColumnName = checkColumnName.split(" → ")[0].trim();
+    }
+
+    if (!checkColumnName || checkColumnName === "unknown") continue;
+
+    // Find other tables in dependency_graph that have the same column name
+    const otherTables = await db.all(
+      `SELECT DISTINCT table_name, column_name FROM dependency_graph
+       WHERE project_id = ? AND column_name = ? AND table_name != ?
+       LIMIT 10`,
+      projectId, checkColumnName, change.tableName,
+    ) as Array<{ table_name: string; column_name: string }>;
+
+    if (otherTables.length > 0) {
+      const tableNames = [...new Set(otherTables.map((t) => t.table_name))];
+      const affectedServicesPerTable: Record<string, string[]> = {};
+
+      for (const tbl of tableNames) {
+        const services = await db.all(
+          `SELECT DISTINCT r.service_name FROM dependency_graph dg
+           JOIN registered_repos r ON dg.repo_id = r.id
+           WHERE dg.project_id = ? AND dg.table_name = ?`,
+          projectId, tbl,
+        ) as Array<{ service_name: string }>;
+        affectedServicesPerTable[tbl] = services.map((s) => s.service_name);
+      }
+
+      warnings.push({
+        columnName: checkColumnName,
+        changedInTable: change.tableName,
+        sameColumnInTables: tableNames,
+        affectedServicesPerTable,
+        warning: `⚠️ Column "${checkColumnName}" also exists in tables: ${tableNames.join(", ")}. You are only changing it in "${change.tableName}". Make sure these other tables have been considered.`,
+      });
+    }
+  }
+
+  return warnings;
 }

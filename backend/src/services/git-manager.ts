@@ -1,8 +1,9 @@
 import simpleGit, { SimpleGit } from "simple-git";
 import fs from "fs";
 import path from "path";
+import os from "os";
 
-const REPO_BASE = path.join(__dirname, "..", "..", "data", "repos");
+const CLONE_BASE = path.join(os.tmpdir(), "sg-repos");
 
 export interface GitRepo {
   id: string;
@@ -10,81 +11,65 @@ export interface GitRepo {
   name: string;
   language: string;
   localPath: string;
+  cloned: boolean;
 }
 
-export async function cloneRepo(repo: { id: string; url: string; name: string; language: string }): Promise<GitRepo> {
-  const localPath = path.join(REPO_BASE, repo.id);
-  fs.mkdirSync(localPath, { recursive: true });
+export async function cloneRepo(repo: {
+  id: string; url: string; name: string; language: string;
+}): Promise<GitRepo> {
+  const projectDir = path.join(CLONE_BASE, repo.id);
+  fs.mkdirSync(projectDir, { recursive: true });
 
-  const repoDir = path.join(localPath, repo.name);
+  const repoDir = path.join(projectDir, sanitizeName(repo.name));
 
-  // Handle local file:// repos (for testing)
-  if (repo.url.startsWith("file://")) {
-    const sourcePath = repo.url.replace("file://", "");
-    if (fs.existsSync(sourcePath)) {
-      console.log(`📁 Using local repo: ${sourcePath}`);
-      return {
-        ...repo,
-        localPath: sourcePath,
-      };
-    }
-  }
-
-  const git: SimpleGit = simpleGit();
-
-  try {
-    if (fs.existsSync(path.join(repoDir, ".git"))) {
-      console.log(`📦 Pulling ${repo.name}...`);
-      await simpleGit(repoDir).pull();
-    } else {
-      console.log(`📦 Cloning ${repo.name} from ${repo.url}...`);
-      await git.clone(repo.url, repoDir, ["--depth", "1"]);
-    }
-  } catch (err: any) {
-    console.error(`❌ Clone failed for ${repo.name}:`, err.message);
-  }
-
-  return { ...repo, localPath: repoDir };
-}
-
-export function listFiles(repoPath: string, extensions: string[]): string[] {
-  const results: string[] = [];
-
-  function walk(dir: string) {
+  // Already cloned? Pull instead
+  if (fs.existsSync(path.join(repoDir, ".git"))) {
     try {
-      const entries = fs.readdirSync(dir, { withFileTypes: true });
-      for (const entry of entries) {
-        const full = path.join(dir, entry.name);
-        if (entry.isDirectory() && !entry.name.startsWith(".") && entry.name !== "node_modules" && entry.name !== "__pycache__" && entry.name !== ".git") {
-          walk(full);
-        } else if (entry.isFile()) {
-          const ext = path.extname(entry.name);
-          if (extensions.includes(ext)) {
-            results.push(full);
-          }
-        }
-      }
+      console.log(`📦 Pulling ${repo.name}...`);
+      const git: SimpleGit = simpleGit(repoDir);
+      await git.pull(["origin", "main"]).catch(() => git.pull(["origin", "master"]));
+      return { ...repo, localPath: repoDir, cloned: true };
     } catch {
-      /* skip unreadable dirs */
+      console.log(`⚠️ Pull failed, re-cloning ${repo.name}...`);
+      fs.rmSync(repoDir, { recursive: true, force: true });
     }
   }
 
-  walk(repoPath);
-  return results;
-}
-
-export function readCodeFile(filePath: string): string {
+  // Clone fresh
   try {
-    return fs.readFileSync(filePath, "utf-8");
-  } catch {
-    return "";
+    console.log(`📦 Cloning ${repo.name} from ${repo.url}...`);
+    const token = process.env.GITHUB_TOKEN;
+
+    let cloneUrl = repo.url;
+    if (token && cloneUrl.includes("github.com")) {
+      cloneUrl = cloneUrl.replace("https://", `https://${token}@`);
+    }
+
+    const git: SimpleGit = simpleGit();
+    await git.clone(cloneUrl, repoDir, ["--depth", "1", "--single-branch"]);
+    return { ...repo, localPath: repoDir, cloned: true };
+  } catch (err: any) {
+    console.error(`❌ Clone failed for ${repo.name}: ${err.message}`);
+    return { ...repo, localPath: repoDir, cloned: false };
   }
 }
 
 export function cleanupRepo(repoPath: string): void {
   try {
-    fs.rmSync(repoPath, { recursive: true, force: true });
+    if (fs.existsSync(repoPath)) {
+      fs.rmSync(repoPath, { recursive: true, force: true });
+      console.log(`🧹 Cleaned: ${repoPath}`);
+    }
   } catch {
     /* ignore */
   }
+}
+
+export function cleanupProject(projectId: string): void {
+  const projectDir = path.join(CLONE_BASE, projectId);
+  cleanupRepo(projectDir);
+}
+
+function sanitizeName(name: string): string {
+  return name.replace(/[^a-zA-Z0-9-_]/g, "-").substring(0, 50);
 }

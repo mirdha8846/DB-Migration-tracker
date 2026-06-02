@@ -88,7 +88,7 @@ router.post("/webhook/github", async (req: Request, res: Response) => {
         overallRisk, prNumber, repoFullName,
         affectedServices: (explanation.affectedServiceFixes || []).map((f: any) => ({ serviceName: f.serviceName || "unknown", filePath: "", issue: f.issue || "", fix: f.fix || "" })),
         deployOrder: explanation.deployOrder || [],
-        dashboardUrl: `http://localhost:3000/migrations/${migrationId}`,
+        dashboardUrl: process.env.DASHBOARD_URL ? `${process.env.DASHBOARD_URL}/migrations/${migrationId}` : "",
       });
 
       await db.run("UPDATE impact_reports SET posted_to_github = ?, posted_to_slack = ? WHERE migration_id = ?",

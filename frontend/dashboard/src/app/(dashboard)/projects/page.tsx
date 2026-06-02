@@ -41,11 +41,20 @@ export default function ProjectsPage() {
       mainClassName="ml-64 mt-16 min-h-screen p-margin-desktop"
     >
       <div className="mx-auto max-w-[1440px]">
-        <div className="mb-stack-lg">
-          <h1 className="font-headline-lg text-headline-lg text-primary">Schema Security</h1>
-          <p className="mt-1 font-body-md text-on-surface-variant/80">
-            Manage your database projects and monitor schema changes.
-          </p>
+        <div className="mb-stack-lg flex items-center justify-between">
+          <div>
+            <h1 className="font-headline-lg text-headline-lg text-primary">Schema Security</h1>
+            <p className="mt-1 font-body-md text-on-surface-variant/80">
+              Manage your database projects and monitor schema changes.
+            </p>
+          </div>
+          <Link
+            href="/projects/new"
+            className="rounded-xl bg-primary px-6 py-3 font-label-md text-label-md text-on-primary transition-all hover:brightness-110 flex items-center gap-2"
+          >
+            <MaterialIcon name="add" size={18} />
+            Create Project
+          </Link>
         </div>
 
         {loading ? (

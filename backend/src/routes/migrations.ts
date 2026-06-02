@@ -53,8 +53,8 @@ router.get("/migrations/:id", authMiddleware, async (req: Request, res: Response
     const changes = await db.all("SELECT * FROM schema_changes WHERE migration_id = ?", migration.id) as Array<any>;
 
     res.json({
-      id: migration.id, title: migration.file_path || "Migration", author: "k_yamamoto",
-      createdAt: migration.created_at || "recently",
+      id: migration.id, title: migration.file_path || "Migration", author: "unknown",
+      createdAt: migration.created_at || new Date().toISOString(),
       filePath: migration.file_path, fileContent: migration.file_content,
       detectedChanges: changes.map((c) => ({
         type: c.change_type.replace(/_/g, " ").replace(/\b\w/g, (l: string) => l.toUpperCase()),

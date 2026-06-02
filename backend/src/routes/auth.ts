@@ -3,10 +3,10 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import db from "../config/db";
 import { authMiddleware, AuthPayload } from "../middleware/auth";
+import { JWT_SECRET } from "../config/env";
 import { randomUUID } from "crypto";
 
 const router = Router();
-const JWT_SECRET = process.env.JWT_SECRET || "dev-secret";
 
 function signToken(payload: AuthPayload): string {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: "24h" });
