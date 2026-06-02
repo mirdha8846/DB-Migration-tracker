@@ -26,14 +26,15 @@ app.use((req, _res, next) => {
 });
 
 app.use(cors());
-app.use("/webhook", express.raw({ type: "application/json" }), (req, _res, next) => {
-  try {
-    req.body = JSON.parse(req.body.toString());
-  } catch {
-    req.body = {};
+
+// Webhook raw body parser — must run BEFORE express.json()
+app.use("/webhook", express.raw({ type: "*/*" }), (req, _res, next) => {
+  if (req.body && Buffer.isBuffer(req.body)) {
+    try { req.body = JSON.parse(req.body.toString()); } catch { req.body = {}; }
   }
   next();
 });
+
 app.use(express.json());
 
 app.use(authRoutes);

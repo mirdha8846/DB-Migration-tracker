@@ -2,7 +2,7 @@ import { Router, Request, Response } from "express";
 import db from "../config/db";
 import { authMiddleware } from "../middleware/auth";
 import { randomUUID } from "crypto";
-import { setupGitHubWebhook, checkWebhookStatus, getBackendUrl, getWebhookSecret } from "../services/github-webhook-setup";
+import { getBackendUrl, getWebhookSecret } from "../services/github-webhook-setup";
 
 const router = Router();
 
@@ -42,92 +42,9 @@ router.post("/projects/:id/repos", authMiddleware, async (req: Request, res: Res
   await db.run("INSERT INTO registered_repos (id, project_id, github_repo_url, service_name, primary_language) VALUES (?, ?, ?, ?, ?)",
     id, req.params.id, githubRepoUrl, serviceName, language || "java");
 
-  const repoFullName = extractRepoFullName(githubRepoUrl);
-  const backendUrl = process.env.BACKEND_URL || process.env.DASHBOARD_URL || "";
-  let wh: any = null;
-  if (repoFullName && backendUrl) wh = await setupGitHubWebhook(repoFullName, backendUrl);
-
   const row = await db.get("SELECT * FROM registered_repos WHERE id = ?", id);
-  res.status(201).json({ ...row, webhook: wh || { error: "BACKEND_URL not set in .env" } });
-});
-
-router.post("/projects/:id/repos/:repoId/webhook", authMiddleware, async (req: Request, res: Response) => {
-  const p = await db.get("SELECT id FROM projects WHERE id = ? AND tenant_id = ?", req.params.id, req.user!.tenantId) as any;
-  if (!p) { res.status(404).json({ error: "project not found" }); return; }
-  const repo = await db.get("SELECT * FROM registered_repos WHERE id = ? AND project_id = ?", req.params.repoId, req.params.id) as any;
-  if (!repo) { res.status(404).json({ error: "repo not found" }); return; }
-
-  const repoFullName = extractRepoFullName(repo.github_repo_url);
-  const backendUrl = process.env.BACKEND_URL || process.env.DASHBOARD_URL || "";
-  if (!repoFullName || !backendUrl) { res.json({ success: false, error: "BACKEND_URL not configured" }); return; }
-
-  const result = await setupGitHubWebhook(repoFullName, backendUrl);
-  res.json(result);
-});
-
-// Test webhook routing — shows which project a repo maps to
-router.get("/projects/:id/repos/:repoId/test-webhook", authMiddleware, async (req: Request, res: Response) => {
-  const repo = await db.get("SELECT * FROM registered_repos WHERE id = ? AND project_id = ?", req.params.repoId, req.params.id) as any;
-  if (!repo) { res.status(404).json({ error: "repo not found" }); return; }
-
-  const repoFullName = extractRepoFullName(repo.github_repo_url);
-  const backendUrl = getBackendUrl();
-
-  // Check if webhook actually exists on GitHub
-  let status: any = null;
-  if (repoFullName) {
-    status = await checkWebhookStatus(repoFullName);
-  }
-
-  res.json({
-    repo: { url: repo.github_repo_url, name: repo.service_name },
-    routing: {
-      webhookUrl: backendUrl ? `${backendUrl}/webhook/github` : "BACKEND_URL not set",
-      repoFullName: repoFullName || "Invalid URL",
-      secretConfigured: !!process.env.GITHUB_WEBHOOK_SECRET,
-      description: repoFullName
-        ? `Payload: { repository.full_name: "${repoFullName}" } → DB search → project ${req.params.id}`
-        : "Invalid GitHub URL",
-    },
-    webhookStatus: status || { error: "Could not check — GITHUB_TOKEN required" },
-  });
-});
-
-// Check webhook health for a repo
-router.get("/projects/:id/repos/:repoId/check-webhook", authMiddleware, async (req: Request, res: Response) => {
-  const repo = await db.get("SELECT * FROM registered_repos WHERE id = ? AND project_id = ?", req.params.repoId, req.params.id) as any;
-  if (!repo) { res.status(404).json({ error: "repo not found" }); return; }
-
-  const repoFullName = extractRepoFullName(repo.github_repo_url);
-  if (!repoFullName) { res.json({ exists: false, error: "Invalid GitHub URL" }); return; }
-
-  const status = await checkWebhookStatus(repoFullName);
-  res.json(status);
-});
-
-// Webhook setup instructions (shows secret to user)
-router.get("/projects/:id/webhook-info", authMiddleware, async (req: Request, res: Response) => {
-  const backendUrl = getBackendUrl();
-  const hasToken = !!(process.env.GITHUB_TOKEN);
-  const webhookSecret = getWebhookSecret();
-
-  res.json({
-    webhookUrl: backendUrl ? `${backendUrl}/webhook/github` : null,
-    webhookSecret,
-    backendConfigured: !!backendUrl,
-    canAutoCreate: !!(backendUrl && hasToken),
-    missingConfig: [
-      !backendUrl && "BACKEND_URL not set in backend .env",
-    ].filter(Boolean),
-    manualSetupSteps: backendUrl ? [
-      { step: 1, text: "Go to your GitHub repo → Settings → Webhooks → Add webhook" },
-      { step: 2, text: "Payload URL", value: `${backendUrl}/webhook/github`, copy: true },
-      { step: 3, text: "Content type", value: "application/json" },
-      { step: 4, text: "Secret", value: webhookSecret, copy: true },
-      { step: 5, text: "Which events?", value: "Select: Pull requests" },
-      { step: 6, text: "Click Add webhook" },
-    ] : [],
-  });
+  console.log(`📁 Repo registered: ${serviceName}`);
+  res.status(201).json(row);
 });
 
 router.get("/projects/:id/migrations", authMiddleware, async (req: Request, res: Response) => {
@@ -137,6 +54,25 @@ router.get("/projects/:id/migrations", authMiddleware, async (req: Request, res:
     `SELECT m.*, ir.overall_risk as riskLevel FROM migrations m
      LEFT JOIN impact_reports ir ON ir.migration_id = m.id WHERE m.project_id = ? ORDER BY m.created_at DESC`,
     req.params.id));
+});
+
+// Webhook setup instructions — no PAT needed
+router.get("/projects/:id/webhook-info", authMiddleware, (_req: Request, res: Response) => {
+  const backendUrl = getBackendUrl();
+  const webhookSecret = getWebhookSecret();
+  res.json({
+    webhookUrl: backendUrl ? `${backendUrl}/webhook/github` : null,
+    webhookSecret,
+    configured: !!backendUrl,
+    manualSetupSteps: backendUrl ? [
+      { step: 1, text: "Go to GitHub repo → Settings → Webhooks → Add webhook" },
+      { step: 2, text: "Payload URL", value: `${backendUrl}/webhook/github`, copy: true },
+      { step: 3, text: "Content type", value: "application/json" },
+      { step: 4, text: "Secret", value: webhookSecret, copy: true },
+      { step: 5, text: "Which events?", value: "Pull requests" },
+      { step: 6, text: "Click Add webhook" },
+    ] : [],
+  });
 });
 
 router.get("/projects/:id/graph", authMiddleware, async (req: Request, res: Response) => {

@@ -23,10 +23,18 @@ function verifyGitHubSignature(req: Request): boolean {
 
 router.post("/webhook/github", async (req: Request, res: Response) => {
   try {
-    if (!verifyGitHubSignature(req)) { res.status(401).json({ error: "invalid signature" }); return; }
-
     const event = req.headers["x-github-event"] as string;
     const payload = req.body;
+
+    // Handle GitHub PING event (sent when webhook is first added)
+    if (event === "ping") {
+      console.log("🔔 Webhook ping received — webhook is active!");
+      res.status(200).json({ message: "pong", hook: payload?.hook_id });
+      return;
+    }
+
+    if (!verifyGitHubSignature(req)) { res.status(401).json({ error: "invalid signature" }); return; }
+
     if (event !== "pull_request" || !["opened", "synchronize"].includes(payload?.action)) {
       res.status(200).json({ message: "event ignored" }); return;
     }
