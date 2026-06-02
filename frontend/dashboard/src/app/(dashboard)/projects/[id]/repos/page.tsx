@@ -7,187 +7,233 @@ import { api } from "@/lib/api";
 
 type Props = { params: { id: string } };
 
-type WebhookInfo = { success: boolean; webhookUrl?: string; error?: string; alreadyExists?: boolean; webhookId?: number };
+type WebhookInfo = { success: boolean; webhookUrl?: string; error?: string; alreadyExists?: boolean };
 
 type Repo = {
-  id: string;
-  service_name: string;
-  github_repo_url: string;
-  primary_language: string;
-  last_scanned_at: string | null;
+  id: string; service_name: string; github_repo_url: string;
+  primary_language: string; last_scanned_at: string | null;
   webhook?: WebhookInfo;
 };
 
-const WEBHOOK_PATH = "/webhook/github";
+type WebhookSetupInfo = {
+  webhookUrl: string | null; webhookSecret: string; backendConfigured: boolean;
+  canAutoCreate: boolean; missingConfig: string[];
+  manualSetupSteps: Array<{ step: number; text: string; value?: string; copy?: boolean }>;
+};
 
 export default function ProjectReposPage({ params }: Props) {
   const [repos, setRepos] = useState<Repo[]>([]);
   const [loading, setLoading] = useState(true);
-  const [url, setUrl] = useState("");
-  const [name, setName] = useState("");
-  const [lang, setLang] = useState("java");
-  const [addResult, setAddResult] = useState<{ ok: boolean; msg: string } | null>(null);
-
-  const backendUrl = typeof window !== "undefined"
-    ? process.env.NEXT_PUBLIC_API_URL || ""
-    : "";
-  const webhookFullUrl = backendUrl ? `${backendUrl}${WEBHOOK_PATH}` : "Not configured — set NEXT_PUBLIC_API_URL";
+  const [url, setUrl] = useState(""); const [name, setName] = useState(""); const [lang, setLang] = useState("java");
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [setupInfo, setSetupInfo] = useState<WebhookSetupInfo | null>(null);
+  const [checkingRepo, setCheckingRepo] = useState<string | null>(null);
+  const [repoStatuses, setRepoStatuses] = useState<Record<string, { exists: boolean; active: boolean; lastResponse?: number }>>({});
 
   const load = async () => {
-    try {
-      const res = await api.get<Repo[]>(`/api/projects/${params.id}/repos`);
-      setRepos(res.data);
-    } catch { /* empty */ }
+    try { setRepos((await api.get(`/api/projects/${params.id}/repos`)).data); } catch { }
+    try { setSetupInfo((await api.get(`/api/projects/${params.id}/webhook-info`)).data); } catch { }
     setLoading(false);
   };
-
   useEffect(() => { void load(); }, [params.id]);
 
   const addRepo = async () => {
     if (!url.trim() || !name.trim()) return;
-    setAddResult(null);
+    setMsg(null);
     try {
-      const res = await api.post<Repo>(`/api/projects/${params.id}/repos`, {
-        githubRepoUrl: url.trim(), serviceName: name.trim(), language: lang,
-      });
+      const res = await api.post(`/api/projects/${params.id}/repos`, { githubRepoUrl: url.trim(), serviceName: name.trim(), language: lang });
       setUrl(""); setName("");
       await load();
-
-      const d = res.data;
-      const wh = d.webhook as WebhookInfo | undefined;
-      if (wh?.success) {
-        setAddResult({ ok: true, msg: `✅ Repo added + webhook ${wh.alreadyExists ? "already exists" : "auto-created"}` });
-      } else if (wh?.error) {
-        setAddResult({ ok: false, msg: `Repo added. Webhook: ${wh.error}. Add manually in GitHub → Settings → Webhooks → ${webhookFullUrl}` });
-      } else {
-        setAddResult({ ok: true, msg: "Repo added. Webhook not set — add GITHUB_TOKEN in backend .env for auto-setup" });
-      }
-    } catch {
-      setAddResult({ ok: false, msg: "Failed to add repo" });
-    }
-    setTimeout(() => setAddResult(null), 10000);
+      const wh = res.data.webhook as WebhookInfo | undefined;
+      if (wh?.success) setMsg({ ok: true, text: wh.alreadyExists ? "✅ Repo added + webhook already exists" : "✅ Repo added + webhook auto-created" });
+      else if (wh?.error) setMsg({ ok: false, text: `Repo added. Webhook setup failed: ${wh.error}` });
+      else setMsg({ ok: true, text: "Repo added. Webhook auto-setup skipped (GITHUB_TOKEN not configured). Use manual setup below." });
+    } catch { setMsg({ ok: false, text: "Failed to add repo" }); }
+    setTimeout(() => setMsg(null), 12000);
   };
 
   const retryWebhook = async (repoId: string) => {
     try {
       const res = await api.post(`/api/projects/${params.id}/repos/${repoId}/webhook`);
       await load();
-      setAddResult({ ok: res.data.success, msg: res.data.success ? "Webhook created ✅" : `Failed: ${res.data.error}` });
-    } catch {
-      setAddResult({ ok: false, msg: "Webhook setup failed" });
-    }
-    setTimeout(() => setAddResult(null), 8000);
+      setMsg({ ok: res.data.success, text: res.data.success ? "✅ Webhook created" : `Failed: ${res.data.error}` });
+    } catch { setMsg({ ok: false, text: "Failed" }); }
+    setTimeout(() => setMsg(null), 8000);
   };
 
-  return (
-    <DashboardShell
-      variant="detail" active="schema-security"
-      pageTitle="Registered Repos" pageSubtitle={params.id}
-      mainClassName="ml-64 mt-16 min-h-screen p-margin-desktop"
-    >
-      <div className="mx-auto max-w-[1440px]">
-        <h1 className="font-headline-lg text-headline-lg text-primary">Registered Repositories</h1>
-        <p className="mt-1 font-body-md text-on-surface-variant/80">
-          Add your GitHub repos here. When a PR with SQL migration files is opened, SchemaGuard auto-analyzes it.
-        </p>
+  const checkRepoStatus = async (repoId: string) => {
+    setCheckingRepo(repoId);
+    try {
+      const res = await api.get(`/api/projects/${params.id}/repos/${repoId}/check-webhook`);
+      setRepoStatuses((prev) => ({ ...prev, [repoId]: res.data }));
+    } catch { }
+    setCheckingRepo(null);
+  };
 
-        {/* Webhook URL Info */}
-        <div className="glass-card mt-stack-lg mb-stack-lg rounded-2xl p-6 border border-primary-fixed/20">
-          <div className="flex items-center gap-3 mb-2">
-            <MaterialIcon name="link" className="text-primary" size={24} />
-            <h3 className="font-headline-md text-headline-md text-primary">Your Webhook URL</h3>
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setMsg({ ok: true, text: "Copied!" });
+    setTimeout(() => setMsg(null), 2000);
+  };
+
+  if (loading) return <DashboardShell variant="detail" active="schema-security" mainClassName="ml-64 mt-16 min-h-screen p-margin-desktop"><p className="py-8 text-center text-on-surface-variant/60">Loading...</p></DashboardShell>;
+
+  return (
+    <DashboardShell variant="detail" active="schema-security" pageTitle="Repositories" pageSubtitle={params.id} mainClassName="ml-64 mt-16 min-h-screen p-margin-desktop">
+      <div className="mx-auto max-w-[1440px]">
+
+        {/* ═══ Webhook Configuration Card ═══ */}
+        <div className="glass-card rounded-2xl p-6 mb-stack-lg border-2 border-primary-fixed/30">
+          <h2 className="font-headline-md text-headline-md text-primary mb-4 flex items-center gap-2">
+            <MaterialIcon name="link" className="text-primary" /> Webhook Configuration
+          </h2>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Left: Webhook URL + Secret Status */}
+            <div>
+              <p className="font-label-sm uppercase tracking-wider text-on-surface-variant mb-2">Webhook URL (Same for ALL repos)</p>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 rounded-lg bg-primary/10 px-4 py-3 font-mono text-sm text-primary break-all">
+                  {setupInfo?.webhookUrl || "BACKEND_URL not set"}
+                </code>
+                {setupInfo?.webhookUrl && (
+                  <button onClick={() => copyToClipboard(setupInfo.webhookUrl!)} className="rounded-lg bg-primary/10 p-3 hover:bg-primary/20">
+                    <MaterialIcon name="content_copy" size={18} className="text-primary" />
+                  </button>
+                )}
+              </div>
+
+              <div className="mt-4 space-y-2">
+                <p className="font-label-sm uppercase tracking-wider text-on-surface-variant">Configuration Status</p>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-sm">
+                    {setupInfo?.backendConfigured ? <MaterialIcon name="check_circle" className="text-secondary" size={18} /> : <MaterialIcon name="cancel" className="text-error" size={18} />}
+                    <span>Webhook URL + Secret {setupInfo?.backendConfigured ? "configured ✅" : "not configured ⚠️"}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm">
+                    {setupInfo?.canAutoCreate ? <MaterialIcon name="check_circle" className="text-secondary" size={18} /> : <MaterialIcon name="info" className="text-tertiary-fixed" size={18} />}
+                    <span>Auto-create webhook {setupInfo?.canAutoCreate ? "enabled ✅" : "disabled — add GITHUB_TOKEN in backend .env"}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Right: Manual Setup Steps */}
+            <div>
+              <p className="font-label-sm uppercase tracking-wider text-on-surface-variant mb-2">
+                {setupInfo?.canAutoCreate ? "Auto-setup enabled. If it fails, use manual steps:" : "Manual Webhook Setup — Copy these values:"}
+              </p>
+              <div className="rounded-xl bg-primary/5 p-4 space-y-3 text-sm">
+                {setupInfo?.manualSetupSteps.map((s) => (
+                  <div key={s.step} className="flex items-start gap-2">
+                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-bold mt-0.5">{s.step}</span>
+                    <div className="flex-1 min-w-0">
+                      <span className="text-on-surface-variant">{s.text}</span>
+                      {s.value && (
+                        <div className="flex items-center gap-2 mt-1">
+                          <code className="text-xs bg-white/50 rounded px-2 py-1 text-primary break-all">{s.value}</code>
+                          {s.copy && (
+                            <button onClick={() => copyToClipboard(s.value!)}
+                              className="flex-shrink-0 text-primary hover:text-primary/70">
+                              <MaterialIcon name="content_copy" size={14} />
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                {!setupInfo?.manualSetupSteps.length && (
+                  <p className="text-on-surface-variant/50">BACKEND_URL not configured</p>
+                )}
+              </div>
+              <p className="mt-2 text-xs text-on-surface-variant/40">
+                Webhook Secret: <code className="bg-primary/5 px-1 rounded">{setupInfo?.webhookSecret?.substring(0, 20)}...</code>
+                <button onClick={() => setupInfo?.webhookSecret && copyToClipboard(setupInfo.webhookSecret)} className="ml-1 text-primary hover:underline text-xs">Copy</button>
+              </p>
+            </div>
           </div>
-          <p className="font-body-md text-on-surface-variant/70 mb-2">
-            Use this URL in GitHub repo → Settings → Webhooks for ALL repos:
-          </p>
-          <code className="block rounded-lg bg-primary/10 px-4 py-3 font-mono text-sm text-primary break-all">
-            {webhookFullUrl}
-          </code>
-          <p className="mt-2 text-xs text-on-surface-variant/50">
-            Secret: {process.env.NEXT_PUBLIC_API_URL ? "Set in backend .env as GITHUB_WEBHOOK_SECRET" : "Not configured"}
-          </p>
         </div>
 
-        {/* Add Repo Form */}
-        <div className="glass-panel mb-stack-lg rounded-2xl p-6">
+        {/* ═══ Add Repo Form ═══ */}
+        <div className="glass-panel rounded-2xl p-6 mb-stack-lg">
           <h3 className="mb-4 font-headline-md text-headline-md text-primary">Register a Repository</h3>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
-            <input placeholder="GitHub URL (e.g. https://github.com/you/repo)" value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              className="rounded-xl border border-primary/10 bg-primary/5 px-4 py-2.5 font-body-md placeholder:text-on-surface-variant/40 focus:border-primary/30 focus:outline-none" />
-            <input placeholder="Service Name" value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="rounded-xl border border-primary/10 bg-primary/5 px-4 py-2.5 font-body-md placeholder:text-on-surface-variant/40 focus:border-primary/30 focus:outline-none" />
+            <input placeholder="GitHub URL (https://github.com/you/repo)" value={url} onChange={(e) => setUrl(e.target.value)}
+              className="rounded-xl border border-primary/10 bg-primary/5 px-4 py-2.5 font-body-md text-sm placeholder:text-on-surface-variant/40 focus:border-primary focus:outline-none" />
+            <input placeholder="Service Name" value={name} onChange={(e) => setName(e.target.value)}
+              className="rounded-xl border border-primary/10 bg-primary/5 px-4 py-2.5 font-body-md text-sm placeholder:text-on-surface-variant/40 focus:border-primary focus:outline-none" />
             <select value={lang} onChange={(e) => setLang(e.target.value)}
-              className="rounded-xl border border-primary/10 bg-primary/5 px-4 py-2.5 font-body-md focus:border-primary/30 focus:outline-none">
-              <option value="java">Java</option><option value="python">Python</option>
-              <option value="typescript">TypeScript</option><option value="go">Go</option>
+              className="rounded-xl border border-primary/10 bg-primary/5 px-4 py-2.5 font-body-md text-sm focus:border-primary focus:outline-none">
+              <option value="java">Java</option><option value="python">Python</option><option value="typescript">TypeScript</option><option value="go">Go</option>
             </select>
-            <button onClick={addRepo} className="rounded-xl bg-primary px-6 py-2.5 font-label-md text-label-md text-on-primary hover:brightness-110">
+            <button onClick={addRepo} className="rounded-xl bg-primary px-6 py-2.5 font-label-md text-sm text-on-primary hover:brightness-110">
               Add Repository
             </button>
           </div>
-          {addResult && (
-            <p className={`mt-3 rounded-lg px-4 py-2 text-sm ${addResult.ok ? "bg-secondary/10 text-secondary" : "bg-error/10 text-error"}`}>
-              {addResult.msg}
-            </p>
+          {msg && (
+            <p className={`mt-3 rounded-lg px-4 py-2 text-sm ${msg.ok ? "bg-secondary/10 text-secondary" : "bg-error/10 text-error"}`}>{msg.text}</p>
           )}
         </div>
 
-        {/* Repo List */}
-        {loading ? (
-          <p className="py-8 text-center text-on-surface-variant/60">Loading...</p>
-        ) : repos.length === 0 ? (
+        {/* ═══ Repo List ═══ */}
+        {repos.length === 0 ? (
           <div className="glass-card rounded-2xl p-12 text-center">
-            <MaterialIcon name="folder_open" className="mx-auto mb-4 text-[48px] text-primary/30" />
+            <MaterialIcon name="link_off" className="mx-auto mb-4 text-[48px] text-primary/20" />
             <p className="text-on-surface-variant/60">No repos registered. Add one above.</p>
           </div>
         ) : (
-          <div className="glass-panel overflow-hidden rounded-2xl">
-            <table className="w-full text-left">
-              <thead>
-                <tr className="border-b border-primary/5 bg-primary/5">
-                  <th className="px-6 py-4 font-label-sm text-label-sm uppercase text-on-surface-variant">Service</th>
-                  <th className="px-6 py-4 font-label-sm text-label-sm uppercase text-on-surface-variant">Repo</th>
-                  <th className="px-6 py-4 font-label-sm text-label-sm uppercase text-on-surface-variant">Language</th>
-                  <th className="px-6 py-4 font-label-sm text-label-sm uppercase text-on-surface-variant">Webhook</th>
-                  <th className="px-6 py-4 font-label-sm text-label-sm uppercase text-on-surface-variant">Scanned</th>
-                  <th className="px-6 py-4" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-primary/5">
-                {repos.map((r) => {
-                  const whOk = r.webhook?.success || r.webhook?.alreadyExists;
-                  const whIcon = whOk ? "✅" : r.webhook?.error ? "⚠️" : "—";
-                  const whText = whOk ? "Auto" : r.webhook?.error ? r.webhook.error.substring(0, 50) : "Manual";
+          <div className="space-y-3">
+            {repos.map((r) => {
+              const st = repoStatuses[r.id];
+              return (
+                <div key={r.id} className="glass-panel rounded-2xl p-5 transition-all hover:shadow-md">
+                  <div className="flex items-center justify-between flex-wrap gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-3">
+                        <h4 className="font-body-md font-bold text-on-surface truncate">{r.service_name}</h4>
+                        <span className="rounded bg-surface-variant/30 px-2 py-0.5 text-[10px] font-bold uppercase text-on-surface-variant whitespace-nowrap">{r.primary_language}</span>
+                      </div>
+                      <p className="text-xs text-on-surface-variant/60 mt-1 truncate">{r.github_repo_url}</p>
+                    </div>
 
-                  return (
-                    <tr key={r.id} className="transition-colors hover:bg-primary/5">
-                      <td className="px-6 py-4 font-body-md font-semibold text-on-surface">{r.service_name}</td>
-                      <td className="px-6 py-4 font-code-sm text-primary max-w-[200px] truncate">{r.github_repo_url}</td>
-                      <td className="px-6 py-4">
-                        <span className="rounded bg-surface-variant/30 px-3 py-1 text-[11px] font-bold uppercase text-on-surface-variant">{r.primary_language}</span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className={`rounded-full px-3 py-1 text-[11px] font-bold ${whOk ? "bg-secondary/10 text-secondary" : "bg-tertiary-fixed/30 text-on-tertiary-fixed-variant"}`}>
-                          {whIcon} {whText}
+                    <div className="flex items-center gap-3 flex-shrink-0">
+                      {/* Webhook Status */}
+                      {st?.active ? (
+                        <span className="flex items-center gap-1 rounded-full bg-secondary/10 px-3 py-1 text-[11px] font-bold text-secondary">
+                          <MaterialIcon name="check_circle" size={14} /> Webhook Active
                         </span>
-                      </td>
-                      <td className="px-6 py-4 font-body-md text-on-surface-variant/70">
-                        {r.last_scanned_at ? new Date(r.last_scanned_at).toLocaleDateString() : "Never"}
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        {!whOk && (
-                          <button onClick={() => retryWebhook(r.id)} className="font-label-sm font-bold text-primary hover:underline mr-3">
-                            Setup Webhook
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                      ) : r.webhook?.success || r.webhook?.alreadyExists ? (
+                        <span className="flex items-center gap-1 rounded-full bg-secondary/10 px-3 py-1 text-[11px] font-bold text-secondary">
+                          ✅ Webhook Set
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1 rounded-full bg-tertiary-fixed/20 px-3 py-1 text-[11px] font-bold text-on-tertiary-fixed-variant">
+                          ⚠️ Needs Setup
+                        </span>
+                      )}
+
+                      {/* Scanned */}
+                      <span className="text-xs text-on-surface-variant/50 whitespace-nowrap">
+                        Scanned: {r.last_scanned_at ? new Date(r.last_scanned_at).toLocaleDateString() : "Never"}
+                      </span>
+
+                      {/* Actions */}
+                      <button onClick={() => checkRepoStatus(r.id)} disabled={checkingRepo === r.id}
+                        className="rounded-lg border border-primary/10 px-3 py-1.5 text-xs font-bold text-primary hover:bg-primary/5 disabled:opacity-50">
+                        {checkingRepo === r.id ? "Checking..." : "Check Status"}
+                      </button>
+                      {!r.webhook?.success && !r.webhook?.alreadyExists && (
+                        <button onClick={() => retryWebhook(r.id)}
+                          className="rounded-lg bg-primary px-3 py-1.5 text-xs font-bold text-on-primary hover:brightness-110">
+                          Setup Webhook
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

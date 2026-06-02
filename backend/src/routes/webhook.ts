@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import crypto from "crypto";
 import db from "../config/db";
 import { randomUUID } from "crypto";
+import { GITHUB_WEBHOOK_SECRET } from "../config/env";
 import { parseSqlMigration, calculateOverallRisk, getLockingThreat } from "../services/schema-analyzer";
 import { runCodebaseScan } from "../services/codebase-scanner";
 import { generateRiskExplanation } from "../services/deepseek-agent";
@@ -10,7 +11,7 @@ import { orchestrateNotifications } from "../services/notification";
 const router = Router();
 
 function verifyGitHubSignature(req: Request): boolean {
-  const secret = process.env.GITHUB_WEBHOOK_SECRET;
+  const secret = GITHUB_WEBHOOK_SECRET;
   if (!secret) return true;
   const signature = req.headers["x-hub-signature-256"] as string;
   if (!signature) return false;

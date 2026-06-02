@@ -2,7 +2,7 @@ import { Router, Request, Response } from "express";
 import db from "../config/db";
 import { authMiddleware } from "../middleware/auth";
 import { randomUUID } from "crypto";
-import { setupGitHubWebhook } from "../services/github-webhook-setup";
+import { setupGitHubWebhook, checkWebhookStatus, getBackendUrl, getWebhookSecret } from "../services/github-webhook-setup";
 
 const router = Router();
 
@@ -71,20 +71,62 @@ router.get("/projects/:id/repos/:repoId/test-webhook", authMiddleware, async (re
   if (!repo) { res.status(404).json({ error: "repo not found" }); return; }
 
   const repoFullName = extractRepoFullName(repo.github_repo_url);
-  const backendUrl = process.env.BACKEND_URL || process.env.DASHBOARD_URL || "";
+  const backendUrl = getBackendUrl();
+
+  // Check if webhook actually exists on GitHub
+  let status: any = null;
+  if (repoFullName) {
+    status = await checkWebhookStatus(repoFullName);
+  }
 
   res.json({
-    repo: { url: repo.github_repo_url, name: repo.service_name, language: repo.primary_language },
+    repo: { url: repo.github_repo_url, name: repo.service_name },
     routing: {
       webhookUrl: backendUrl ? `${backendUrl}/webhook/github` : "BACKEND_URL not set",
-      repoFullName: repoFullName || "Could not extract — URL format: https://github.com/org/repo",
-      howItWorks: repoFullName
-        ? `When GitHub sends webhook for "${repoFullName}", backend queries: SELECT project_id FROM registered_repos WHERE github_repo_url LIKE '%${repoFullName}%' → found project: ${req.params.id}`
-        : "Invalid GitHub URL format",
+      repoFullName: repoFullName || "Invalid URL",
+      secretConfigured: !!process.env.GITHUB_WEBHOOK_SECRET,
+      description: repoFullName
+        ? `Payload: { repository.full_name: "${repoFullName}" } → DB search → project ${req.params.id}`
+        : "Invalid GitHub URL",
     },
-    testCommand: backendUrl
-      ? `curl -X POST ${backendUrl}/webhook/github -H "Content-Type: application/json" -H "X-GitHub-Event: pull_request" -d '{"action":"opened","number":1,"repository":{"full_name":"${repoFullName || 'your-org/your-repo'}"},"pull_request":{"html_url":"...","changed_files":[{"filename":"migrations/V1__test.sql"}]}}'`
-      : "",
+    webhookStatus: status || { error: "Could not check — GITHUB_TOKEN required" },
+  });
+});
+
+// Check webhook health for a repo
+router.get("/projects/:id/repos/:repoId/check-webhook", authMiddleware, async (req: Request, res: Response) => {
+  const repo = await db.get("SELECT * FROM registered_repos WHERE id = ? AND project_id = ?", req.params.repoId, req.params.id) as any;
+  if (!repo) { res.status(404).json({ error: "repo not found" }); return; }
+
+  const repoFullName = extractRepoFullName(repo.github_repo_url);
+  if (!repoFullName) { res.json({ exists: false, error: "Invalid GitHub URL" }); return; }
+
+  const status = await checkWebhookStatus(repoFullName);
+  res.json(status);
+});
+
+// Webhook setup instructions (shows secret to user)
+router.get("/projects/:id/webhook-info", authMiddleware, async (req: Request, res: Response) => {
+  const backendUrl = getBackendUrl();
+  const hasToken = !!(process.env.GITHUB_TOKEN);
+  const webhookSecret = getWebhookSecret();
+
+  res.json({
+    webhookUrl: backendUrl ? `${backendUrl}/webhook/github` : null,
+    webhookSecret,
+    backendConfigured: !!backendUrl,
+    canAutoCreate: !!(backendUrl && hasToken),
+    missingConfig: [
+      !backendUrl && "BACKEND_URL not set in backend .env",
+    ].filter(Boolean),
+    manualSetupSteps: backendUrl ? [
+      { step: 1, text: "Go to your GitHub repo → Settings → Webhooks → Add webhook" },
+      { step: 2, text: "Payload URL", value: `${backendUrl}/webhook/github`, copy: true },
+      { step: 3, text: "Content type", value: "application/json" },
+      { step: 4, text: "Secret", value: webhookSecret, copy: true },
+      { step: 5, text: "Which events?", value: "Select: Pull requests" },
+      { step: 6, text: "Click Add webhook" },
+    ] : [],
   });
 });
 
