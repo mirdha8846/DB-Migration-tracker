@@ -24,7 +24,7 @@ function riskEmoji(risk: string): string {
 export async function notifyGitHub(payload: NotifyPayload): Promise<boolean> {
   const token = process.env.GITHUB_TOKEN;
   if (!token || !payload.prNumber || !payload.repoFullName) {
-    console.log("📋 GitHub notification skipped (no token or PR info)");
+    if (token) console.log("📋 GitHub notification skipped (no PR info)");
     return false;
   }
 

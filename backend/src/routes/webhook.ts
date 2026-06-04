@@ -63,19 +63,24 @@ router.post("/webhook/github", async (req: Request, res: Response) => {
 
     // If no files in webhook payload, try fetching from GitHub API
     if (migrationFiles.length === 0 && repoFullName) {
-      // Try GitHub API (with token) first
       let apiFiles = await fetchPrFilesFromGitHub(repoFullName, prNumber);
-      // Fallback: try PR diff URL (works for public repos without auth)
       if (apiFiles.length === 0 && prUrl) {
         apiFiles = await fetchPrDiffFiles(prUrl);
       }
+      // FILTER: only keep SQL migration files
+      apiFiles = apiFiles.filter((f) =>
+        f.filename?.includes("/migrations/") || f.filename?.endsWith(".sql") || /V\d+__.*\.sql/i.test(f.filename || ""),
+      );
       migrationFiles.push(...apiFiles);
     }
 
     if (migrationFiles.length === 0) {
-      console.log("📋 No migration files — creating placeholder entry");
-      migrationFiles.push({ filename: `migrations/PR-${prNumber}-migration.sql` });
+      console.log("📋 No SQL migration files in this PR — nothing to analyze");
+      res.status(200).json({ message: "no migration files in PR" });
+      return;
     }
+
+    console.log(`📋 Found ${migrationFiles.length} migration file(s) to analyze`);
 
     // Match repo: normalize URL comparison
     const repo = await db.get(
@@ -86,9 +91,10 @@ router.post("/webhook/github", async (req: Request, res: Response) => {
     if (!repo) { res.status(200).json({ message: "repo not registered" }); return; }
 
     const projectId = repo.project_id;
+    const branch = payload.pull_request?.head?.ref;
 
     for (const file of migrationFiles) {
-      const fileContent = await fetchFileFromGitHub(repoFullName, file.filename);
+      const fileContent = await fetchFileFromGitHub(repoFullName, file.filename, branch);
       if (!fileContent) continue;
 
       const detectedChanges = parseSqlMigration(fileContent);
@@ -179,35 +185,38 @@ async function fetchPrFilesFromGitHub(repoFullName: string, prNumber: number): P
   } catch { return []; }
 }
 
-async function fetchFileFromGitHub(repoFullName: string, filePath: string): Promise<string | null> {
+async function fetchFileFromGitHub(repoFullName: string, filePath: string, branch?: string): Promise<string | null> {
   const token = process.env.GITHUB_TOKEN;
   if (token) {
     try {
-      const res = await fetch(`https://api.github.com/repos/${repoFullName}/contents/${filePath}`,
+      const ref = branch ? `?ref=${branch}` : "";
+      const res = await fetch(`https://api.github.com/repos/${repoFullName}/contents/${filePath}${ref}`,
         { headers: { Authorization: `Bearer ${token}` } });
       if (res.ok) {
         const data: any = await res.json();
         return Buffer.from(data.content, "base64").toString("utf-8");
       }
-    } catch { /* fall through to raw URL */ }
+    } catch { /* fall through */ }
   }
 
-  // Try raw URL (works for public repos without auth)
-  try {
-    const rawUrl = `https://raw.githubusercontent.com/${repoFullName}/refs/heads/main/${filePath}`;
-    const res = await fetch(rawUrl);
-    if (res.ok) return await res.text();
-  } catch { /* fall through */ }
+  // Try raw URL with branch (works for public repos)
+  if (branch) {
+    try {
+      const res = await fetch(`https://raw.githubusercontent.com/${repoFullName}/${branch}/${filePath}`);
+      if (res.ok) return await res.text();
+    } catch { }
+  }
 
-  // Try master branch
-  try {
-    const rawUrl = `https://raw.githubusercontent.com/${repoFullName}/refs/heads/master/${filePath}`;
-    const res = await fetch(rawUrl);
-    if (res.ok) return await res.text();
-  } catch { }
+  // Try main/master as fallback
+  for (const b of ["main", "master"]) {
+    try {
+      const res = await fetch(`https://raw.githubusercontent.com/${repoFullName}/${b}/${filePath}`);
+      if (res.ok) return await res.text();
+    } catch { }
+  }
 
-  console.log(`⚠️ Could not fetch: ${filePath} — using simulated content`);
-  return `-- Simulated content for ${filePath}\nALTER TABLE users ADD COLUMN test_field VARCHAR(20);`;
+  console.log(`⚠️ Could not fetch: ${filePath} (branch: ${branch || "unknown"})`);
+  return null;
 }
 
 export default router;
