@@ -10,14 +10,15 @@ router.get("/migrations/recent", authMiddleware, async (req: Request, res: Respo
     const limit = Math.min(Number(req.query.limit) || 10, 50);
 
     const rows = await db.all(
-      `SELECT m.id, r.service_name as serviceName, m.status,
-              COALESCE(ir.overall_risk, 'LOW') as riskLevel, m.created_at as createdAt
+      `SELECT DISTINCT m.id,
+              (SELECT r.service_name FROM registered_repos r WHERE r.project_id = p.id LIMIT 1) as serviceName,
+              m.status, COALESCE(ir.overall_risk, 'LOW') as riskLevel, m.created_at as createdAt
        FROM migrations m
        JOIN projects p ON m.project_id = p.id
-       LEFT JOIN registered_repos r ON r.project_id = p.id
        LEFT JOIN impact_reports ir ON ir.migration_id = m.id
        WHERE p.tenant_id = ?
-       ORDER BY m.created_at DESC LIMIT ?`,
+       ORDER BY m.created_at DESC
+       LIMIT ?`,
       tenantId, limit,
     ) as Array<any>;
 
