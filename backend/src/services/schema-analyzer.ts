@@ -43,8 +43,16 @@ export function parseSqlMigration(sql: string): DetectedChange[] {
   const seen = new Set<string>();
 
   for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("--")) continue;
+    let trimmed = line.trim();
+    if (!trimmed) continue;
+
+    // Strip inline comments but keep the SQL
+    // "ALTER TABLE x -- comment" → "ALTER TABLE x"
+    const commentIdx = trimmed.indexOf("--");
+    if (commentIdx !== -1) {
+      trimmed = trimmed.substring(0, commentIdx).trim();
+      if (!trimmed) continue;
+    }
 
     for (const rule of DETECTION_RULES) {
       const match = trimmed.match(rule.regex);

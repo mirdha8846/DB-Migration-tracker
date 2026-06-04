@@ -66,7 +66,6 @@ ${payload.deployOrder.map((s, i) => `${i + 1}. ${s}`).join("\n")}
       console.log("✅ GitHub PR comment posted");
       return true;
     }
-    console.log("❌ GitHub notification failed:", await res.text());
     return false;
   } catch (err: any) {
     console.error("GitHub notify error:", err.message);

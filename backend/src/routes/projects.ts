@@ -104,10 +104,13 @@ router.get("/projects/:id/graph", authMiddleware, async (req: Request, res: Resp
 
 router.get("/projects/:id", authMiddleware, async (req: Request, res: Response) => {
   const project = await db.get(
-    `SELECT p.*, (SELECT COUNT(*) FROM registered_repos WHERE project_id = p.id) as repoCount,
-            (SELECT COUNT(*) FROM migrations WHERE project_id = p.id) as migrationCount
+    `SELECT p.*, 
+            COALESCE((SELECT COUNT(*) FROM registered_repos WHERE project_id = p.id), 0) as "repoCount",
+            COALESCE((SELECT COUNT(*) FROM migrations WHERE project_id = p.id), 0) as "migrationCount"
      FROM projects p WHERE p.id = ? AND p.tenant_id = ?`, req.params.id, req.user!.tenantId) as any;
   if (!project) { res.status(404).json({ error: "project not found" }); return; }
+  project.repoCount = Number(project.repoCount) || 0;
+  project.migrationCount = Number(project.migrationCount) || 0;
   project.repos = await db.all("SELECT * FROM registered_repos WHERE project_id = ?", req.params.id);
   res.json(project);
 });
