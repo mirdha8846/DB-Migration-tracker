@@ -13,11 +13,15 @@ const router = Router();
 function verifyGitHubSignature(req: Request): boolean {
   const secret = GITHUB_WEBHOOK_SECRET;
   if (!secret) return true;
+
   const signature = req.headers["x-hub-signature-256"] as string;
   if (!signature) return false;
-  const body = JSON.stringify(req.body);
+
+  const rawBody = (req as any).rawBody as Buffer;
+  if (!rawBody) return false;
+
   const hmac = crypto.createHmac("sha256", secret);
-  const digest = "sha256=" + hmac.update(body).digest("hex");
+  const digest = "sha256=" + hmac.update(rawBody).digest("hex");
   return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(digest));
 }
 
@@ -26,17 +30,23 @@ router.post("/webhook/github", async (req: Request, res: Response) => {
     const event = req.headers["x-github-event"] as string;
     const payload = req.body;
 
-    // Handle GitHub PING event (sent when webhook is first added)
+    // PING event — no signature check needed
     if (event === "ping") {
       console.log("🔔 Webhook ping received — webhook is active!");
-      res.status(200).json({ message: "pong", hook: payload?.hook_id });
+      res.status(200).json({ message: "pong" });
       return;
     }
 
-    if (!verifyGitHubSignature(req)) { res.status(401).json({ error: "invalid signature" }); return; }
+    // All other events — verify signature
+    if (!verifyGitHubSignature(req)) {
+      console.log("❌ Webhook: invalid signature");
+      res.status(401).json({ error: "invalid signature" });
+      return;
+    }
 
     if (event !== "pull_request" || !["opened", "synchronize"].includes(payload?.action)) {
-      res.status(200).json({ message: "event ignored" }); return;
+      res.status(200).json({ message: "event ignored" });
+      return;
     }
 
     const prNumber = payload.number;

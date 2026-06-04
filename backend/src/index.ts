@@ -28,8 +28,9 @@ app.use((req, _res, next) => {
 app.use(cors());
 
 // Webhook raw body parser — must run BEFORE express.json()
-app.use("/webhook", express.raw({ type: "*/*" }), (req, _res, next) => {
+app.use("/webhook", express.raw({ type: "*/*" }), (req: any, _res, next) => {
   if (req.body && Buffer.isBuffer(req.body)) {
+    req.rawBody = req.body;
     try { req.body = JSON.parse(req.body.toString()); } catch { req.body = {}; }
   }
   next();
@@ -47,7 +48,7 @@ app.use("/api", scanRoutes);
 app.use(webhookRoutes);
 
 app.get("/health", (_req, res) => {
-  res.json({ status: "ok" });
+  res.json({ status: "ok", message: "Server is up and running" });
 });
 
 async function start() {
