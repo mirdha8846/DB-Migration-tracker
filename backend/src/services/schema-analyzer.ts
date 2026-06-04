@@ -6,8 +6,7 @@ export interface DetectedChange {
   columnName?: string;
   riskLevel: "low" | "medium" | "high" | "critical";
   lockingThreat?: "LOW" | "MODERATE" | "SEVERE" | "HIGH";
-  crossTableWarning?: string;
-  sameColumnInOtherTables?: string[];
+  reason?: string;
 }
 
 const DETECTION_RULES: Array<{
@@ -15,6 +14,7 @@ const DETECTION_RULES: Array<{
   changeType: string;
   risk: DetectedChange["riskLevel"];
   lockingThreat?: DetectedChange["lockingThreat"];
+  reason?: string;
 }> = [
   { regex: /DROP\s+TABLE\s+IF\s+EXISTS\s+(\w+)/i, changeType: "drop_table", risk: "critical", lockingThreat: "SEVERE" },
   { regex: /DROP\s+TABLE\s+(?!IF)(\w+)/i, changeType: "drop_table", risk: "critical", lockingThreat: "SEVERE" },
@@ -38,56 +38,54 @@ const DETECTION_RULES: Array<{
 ];
 
 export function parseSqlMigration(sql: string): DetectedChange[] {
-  // Pre-process: remove all SQL comments and normalize
+  // Step 1: Remove comments, normalize whitespace
   const cleanSql = sql
     .split("\n")
     .map((line) => {
-      // Remove everything from " --" (space-dash-dash) or "--" at start of line
       let cleaned = line;
-      // Handle: "-- comment" at start → remove whole line
-      // Handle: "SQL -- inline comment" → keep SQL, remove comment
       const dashIdx = cleaned.indexOf("--");
       if (dashIdx === 0) {
-        // Line starts with comment — but check for SQL after a second comment
         const secondDash = cleaned.indexOf("--", 2);
         if (secondDash > 0) {
           cleaned = cleaned.substring(secondDash + 2).trim();
         } else {
-          return ""; // pure comment
+          return "";
         }
       } else if (dashIdx > 0) {
         cleaned = cleaned.substring(0, dashIdx).trim();
       }
       return cleaned;
     })
-    .join("\n");
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
 
-  const lines = cleanSql.split("\n");
+  if (!cleanSql) return [];
+
+  // Step 2: Apply regex to the whole cleaned SQL
   const changes: DetectedChange[] = [];
   const seen = new Set<string>();
 
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-
-    for (const rule of DETECTION_RULES) {
-      const match = trimmed.match(rule.regex);
-      if (!match) continue;
-
+  for (const rule of DETECTION_RULES) {
+    const regex = new RegExp(rule.regex.source, rule.regex.flags);
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(cleanSql)) !== null) {
       let tableName = "";
       let columnName: string | undefined;
 
-      if (rule.changeType === "drop_table" || rule.changeType === "create_table") {
-        tableName = match[1];
+      if (["drop_table", "drop_table_cascade", "create_table", "truncate_table", "rename_table"].includes(rule.changeType)) {
+        tableName = match[1] || "";
       } else if (rule.changeType === "rename_column") {
-        tableName = match[1];
-        columnName = `${match[2]} → ${match[3]}`;
+        tableName = match[1] || "";
+        if (match[2] && match[3]) columnName = `${match[2]} → ${match[3]}`;
       } else if (rule.changeType === "drop_index") {
-        columnName = match[1];
-        tableName = "unknown";
+        columnName = match[1] || "";
+        tableName = match[2] || "unknown";
       } else if (match[1] && match[2]) {
         tableName = match[1];
         columnName = match[2];
+      } else if (match[1]) {
+        tableName = match[1];
       }
 
       const key = `${rule.changeType}:${tableName}:${columnName || ""}`;
@@ -95,12 +93,44 @@ export function parseSqlMigration(sql: string): DetectedChange[] {
       seen.add(key);
 
       changes.push({
-        changeType: rule.changeType,
-        tableName,
-        columnName,
-        riskLevel: rule.risk,
-        lockingThreat: rule.lockingThreat,
+        changeType: rule.changeType, tableName, columnName,
+        riskLevel: rule.risk, lockingThreat: rule.lockingThreat, reason: rule.reason,
       });
+    }
+  }
+
+  // Step 3: Detect standalone ADD COLUMN / DROP COLUMN after ALTER TABLE
+  // e.g., "ALTER TABLE employee ADD COLUMN a INT, ADD COLUMN b TEXT"
+  const alterTableMatch = cleanSql.match(/ALTER\s+TABLE\s+(\w+)/i);
+  const currentTable = alterTableMatch ? alterTableMatch[1] : null;
+
+  if (currentTable) {
+    const addColRegex = /ADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)/gi;
+    let acMatch: RegExpExecArray | null;
+    while ((acMatch = addColRegex.exec(cleanSql)) !== null) {
+      const col = acMatch[1];
+      const key = `add_column:${currentTable}:${col}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        changes.push({
+          changeType: "add_column", tableName: currentTable, columnName: col,
+          riskLevel: "low", reason: "Add column detected",
+        });
+      }
+    }
+
+    const dropColRegex = /DROP\s+COLUMN\s+(?:IF\s+EXISTS\s+)?(\w+)/gi;
+    let dcMatch: RegExpExecArray | null;
+    while ((dcMatch = dropColRegex.exec(cleanSql)) !== null) {
+      const col = dcMatch[1];
+      const key = `drop_column:${currentTable}:${col}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        changes.push({
+          changeType: "drop_column", tableName: currentTable, columnName: col,
+          riskLevel: "critical", reason: "Column will be dropped",
+        });
+      }
     }
   }
 
