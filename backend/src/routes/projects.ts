@@ -9,12 +9,17 @@ const router = Router();
 router.get("/projects", authMiddleware, async (req: Request, res: Response) => {
   const rows = await db.all(
     `SELECT p.id, p.name, p.db_type as "dbType", p.created_at as "createdAt",
-            (SELECT COUNT(*) FROM registered_repos WHERE project_id = p.id) as repoCount,
-            (SELECT COUNT(*) FROM migrations WHERE project_id = p.id) as migrationCount
+            COALESCE((SELECT COUNT(*) FROM registered_repos WHERE project_id = p.id), 0) as "repoCount",
+            COALESCE((SELECT COUNT(*) FROM migrations WHERE project_id = p.id), 0) as "migrationCount"
      FROM projects p WHERE p.tenant_id = ? ORDER BY p.created_at DESC`,
     req.user!.tenantId,
   );
-  res.json(rows);
+  const result = rows.map((r: any) => ({
+    ...r,
+    repoCount: Number(r.repoCount) || 0,
+    migrationCount: Number(r.migrationCount) || 0,
+  }));
+  res.json(result);
 });
 
 router.post("/projects", authMiddleware, async (req: Request, res: Response) => {

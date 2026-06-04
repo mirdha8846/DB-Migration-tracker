@@ -62,14 +62,18 @@ router.post("/webhook/github", async (req: Request, res: Response) => {
     );
 
     // If no files in webhook payload, try fetching from GitHub API
-    if (migrationFiles.length === 0) {
-      const apiFiles = await fetchPrFilesFromGitHub(repoFullName, prNumber);
+    if (migrationFiles.length === 0 && repoFullName) {
+      // Try GitHub API (with token) first
+      let apiFiles = await fetchPrFilesFromGitHub(repoFullName, prNumber);
+      // Fallback: try PR diff URL (works for public repos without auth)
+      if (apiFiles.length === 0 && prUrl) {
+        apiFiles = await fetchPrDiffFiles(prUrl);
+      }
       migrationFiles.push(...apiFiles);
     }
 
     if (migrationFiles.length === 0) {
       console.log("📋 No migration files — creating placeholder entry");
-      // Still create a migration record so user sees something
       migrationFiles.push({ filename: `migrations/PR-${prNumber}-migration.sql` });
     }
 
@@ -141,6 +145,27 @@ router.post("/webhook/github", async (req: Request, res: Response) => {
   }
 });
 
+async function fetchPrDiffFiles(prUrl: string): Promise<Array<{ filename: string }>> {
+  try {
+    // Convert html_url to diff URL: https://github.com/org/repo/pull/123 → https://github.com/org/repo/pull/123.diff
+    const diffUrl = prUrl.replace(/\/pull\/(\d+).*/, "/pull/$1.diff");
+    const res = await fetch(diffUrl);
+    if (!res.ok) return [];
+    const diff = await res.text();
+
+    // Parse diff to find file names (lines starting with "diff --git a/... b/...")
+    const filePattern = /^diff --git a\/(.+?) b\/(.+?)$/gm;
+    const files: Array<{ filename: string }> = [];
+    let match;
+    while ((match = filePattern.exec(diff)) !== null) {
+      files.push({ filename: match[1] });
+    }
+
+    console.log(`📁 Found ${files.length} files in PR diff`);
+    return files;
+  } catch { return []; }
+}
+
 async function fetchPrFilesFromGitHub(repoFullName: string, prNumber: number): Promise<Array<{ filename: string }>> {
   const token = process.env.GITHUB_TOKEN;
   if (!token) return [];
@@ -156,17 +181,33 @@ async function fetchPrFilesFromGitHub(repoFullName: string, prNumber: number): P
 
 async function fetchFileFromGitHub(repoFullName: string, filePath: string): Promise<string | null> {
   const token = process.env.GITHUB_TOKEN;
-  if (!token) {
-    console.log("⚠️ No GITHUB_TOKEN — using simulated content");
-    return `-- Simulated ${filePath}\nALTER TABLE public.orders ADD COLUMN IF NOT EXISTS metadata jsonb DEFAULT '{}';`;
+  if (token) {
+    try {
+      const res = await fetch(`https://api.github.com/repos/${repoFullName}/contents/${filePath}`,
+        { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) {
+        const data: any = await res.json();
+        return Buffer.from(data.content, "base64").toString("utf-8");
+      }
+    } catch { /* fall through to raw URL */ }
   }
+
+  // Try raw URL (works for public repos without auth)
   try {
-    const res = await fetch(`https://api.github.com/repos/${repoFullName}/contents/${filePath}`,
-      { headers: { Authorization: `Bearer ${token}` } });
-    if (!res.ok) return null;
-    const data: any = await res.json();
-    return Buffer.from(data.content, "base64").toString("utf-8");
-  } catch { return null; }
+    const rawUrl = `https://raw.githubusercontent.com/${repoFullName}/refs/heads/main/${filePath}`;
+    const res = await fetch(rawUrl);
+    if (res.ok) return await res.text();
+  } catch { /* fall through */ }
+
+  // Try master branch
+  try {
+    const rawUrl = `https://raw.githubusercontent.com/${repoFullName}/refs/heads/master/${filePath}`;
+    const res = await fetch(rawUrl);
+    if (res.ok) return await res.text();
+  } catch { }
+
+  console.log(`⚠️ Could not fetch: ${filePath} — using simulated content`);
+  return `-- Simulated content for ${filePath}\nALTER TABLE users ADD COLUMN test_field VARCHAR(20);`;
 }
 
 export default router;
