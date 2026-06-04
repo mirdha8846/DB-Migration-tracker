@@ -51,6 +51,16 @@ app.get("/health", (_req, res) => {
   res.json({ status: "ok", message: "Server is up and running" });
 });
 
+app.get("/health/db", (_req, res) => {
+  const dbUrl = process.env.DB_URL || process.env.DATABASE_URL || "";
+  res.json({
+    dbMode: db.isPostgres() ? "PostgreSQL" : "SQLite",
+    dbUrlConfigured: !!dbUrl,
+    dbUrlPrefix: dbUrl ? dbUrl.substring(0, 30) + "..." : "not set",
+    projectsCount: "check via API",
+  });
+});
+
 async function start() {
   await db.connect();
 
