@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { DashboardShell } from "@/components/layout/DashboardShell";
 import { MaterialIcon } from "@/components/ui/MaterialIcon";
@@ -266,9 +267,12 @@ export function DependencyGraphPageContent({ projectId }: Props) {
               </div>
             </div>
             <div className="border-t border-outline-variant/30 bg-surface-container-low/50 p-6">
-              <button className="w-full rounded-lg bg-primary py-4 font-label-sm text-label-sm text-on-primary shadow-lg transition-all hover:opacity-90 active:scale-[0.98]">
+              <Link
+                href={`/projects/${projectId}/migrations`}
+                className="block w-full rounded-lg bg-primary py-4 text-center font-label-sm text-label-sm text-on-primary shadow-lg transition-all hover:opacity-90 active:scale-[0.98]"
+              >
                 View Full Impact Report
-              </button>
+              </Link>
             </div>
           </>
         )}

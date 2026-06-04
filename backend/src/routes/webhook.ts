@@ -54,13 +54,19 @@ router.post("/webhook/github", async (req: Request, res: Response) => {
     const prUrl = payload.pull_request?.html_url;
     console.log(`🔔 Webhook: PR #${prNumber} from ${repoFullName}`);
 
+    // Filter migration files from PR
     const files = payload.pull_request?.changed_files || [];
     const migrationFiles = files.filter(
       (f: any) => f.filename?.includes("/migrations/") || /V\d+__.*\.sql/.test(f.filename || ""),
     );
     if (migrationFiles.length === 0) { res.status(200).json({ message: "no migration files" }); return; }
 
-    const repo = await db.get("SELECT project_id FROM registered_repos WHERE github_repo_url LIKE ?", `%${repoFullName}%`) as any;
+    // Match repo: normalize URL comparison
+    const repo = await db.get(
+      `SELECT project_id FROM registered_repos 
+       WHERE github_repo_url LIKE ? OR github_repo_url LIKE ? OR github_repo_url LIKE ?`,
+      `%${repoFullName}%`, `%${repoFullName}.git%`, `%github.com/${repoFullName}%`,
+    ) as any;
     if (!repo) { res.status(200).json({ message: "repo not registered" }); return; }
 
     const projectId = repo.project_id;
