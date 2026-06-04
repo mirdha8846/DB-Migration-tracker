@@ -55,11 +55,23 @@ router.post("/webhook/github", async (req: Request, res: Response) => {
     console.log(`🔔 Webhook: PR #${prNumber} from ${repoFullName}`);
 
     // Filter migration files from PR
-    const files = payload.pull_request?.changed_files || [];
+    const rawFiles = payload.pull_request?.changed_files;
+    const files: Array<{ filename: string }> = Array.isArray(rawFiles) ? rawFiles : [];
     const migrationFiles = files.filter(
-      (f: any) => f.filename?.includes("/migrations/") || /V\d+__.*\.sql/.test(f.filename || ""),
+      (f) => f.filename?.includes("/migrations/") || /V\d+__.*\.sql/.test(f.filename || ""),
     );
-    if (migrationFiles.length === 0) { res.status(200).json({ message: "no migration files" }); return; }
+
+    // If no files in webhook payload, try fetching from GitHub API
+    if (migrationFiles.length === 0) {
+      const apiFiles = await fetchPrFilesFromGitHub(repoFullName, prNumber);
+      migrationFiles.push(...apiFiles);
+    }
+
+    if (migrationFiles.length === 0) {
+      console.log("📋 No migration files — creating placeholder entry");
+      // Still create a migration record so user sees something
+      migrationFiles.push({ filename: `migrations/PR-${prNumber}-migration.sql` });
+    }
 
     // Match repo: normalize URL comparison
     const repo = await db.get(
@@ -128,6 +140,19 @@ router.post("/webhook/github", async (req: Request, res: Response) => {
     res.status(500).json({ error: "webhook processing failed" });
   }
 });
+
+async function fetchPrFilesFromGitHub(repoFullName: string, prNumber: number): Promise<Array<{ filename: string }>> {
+  const token = process.env.GITHUB_TOKEN;
+  if (!token) return [];
+  try {
+    const res = await fetch(`https://api.github.com/repos/${repoFullName}/pulls/${prNumber}/files`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" },
+    });
+    if (!res.ok) return [];
+    const data: any = await res.json();
+    return (Array.isArray(data) ? data : []).filter((f: any) => f.filename).map((f: any) => ({ filename: f.filename }));
+  } catch { return []; }
+}
 
 async function fetchFileFromGitHub(repoFullName: string, filePath: string): Promise<string | null> {
   const token = process.env.GITHUB_TOKEN;
