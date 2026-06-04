@@ -1,5 +1,7 @@
 import express from "express";
 import cors from "cors";
+import bcrypt from "bcryptjs";
+import { randomUUID } from "crypto";
 import db from "./config/db";
 import authRoutes from "./routes/auth";
 import statsRoutes from "./routes/stats";
@@ -63,6 +65,26 @@ app.get("/health/db", (_req, res) => {
 
 async function start() {
   await db.connect();
+
+  // Auto-seed if DB is empty
+  const userCount = await db.get("SELECT COUNT(*) as count FROM users") as any;
+  if (!userCount || userCount.count === 0) {
+    console.log("🌱 Empty database detected — auto-seeding...");
+    try {
+      const tenantId = randomUUID();
+      const userId = randomUUID();
+      const email = process.env.SEED_EMAIL || "admin@schemaguard.io";
+      const password = process.env.SEED_PASSWORD || "admin123";
+      const hashed = bcrypt.hashSync(password, 10);
+
+      await db.run("INSERT INTO tenants (id, name, plan) VALUES (?, ?, ?)", tenantId, "My Workspace", "pro");
+      await db.run("INSERT INTO users (id, tenant_id, email, name, role, password_hash) VALUES (?, ?, ?, ?, ?, ?)",
+        userId, tenantId, email, "Admin User", "admin", hashed);
+      console.log(`✅ Auto-seeded user: ${email}`);
+    } catch (err: any) {
+      console.error("Auto-seed failed:", err.message);
+    }
+  }
 
   app.listen(PORT, () => {
     console.log(`🚀 SchemaGuard backend running on http://localhost:${PORT}`);
