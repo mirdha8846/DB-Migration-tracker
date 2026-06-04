@@ -38,31 +38,36 @@ const DETECTION_RULES: Array<{
 ];
 
 export function parseSqlMigration(sql: string): DetectedChange[] {
-  const lines = sql.split("\n");
+  // Pre-process: remove all SQL comments and normalize
+  const cleanSql = sql
+    .split("\n")
+    .map((line) => {
+      // Remove everything from " --" (space-dash-dash) or "--" at start of line
+      let cleaned = line;
+      // Handle: "-- comment" at start → remove whole line
+      // Handle: "SQL -- inline comment" → keep SQL, remove comment
+      const dashIdx = cleaned.indexOf("--");
+      if (dashIdx === 0) {
+        // Line starts with comment — but check for SQL after a second comment
+        const secondDash = cleaned.indexOf("--", 2);
+        if (secondDash > 0) {
+          cleaned = cleaned.substring(secondDash + 2).trim();
+        } else {
+          return ""; // pure comment
+        }
+      } else if (dashIdx > 0) {
+        cleaned = cleaned.substring(0, dashIdx).trim();
+      }
+      return cleaned;
+    })
+    .join("\n");
+
+  const lines = cleanSql.split("\n");
   const changes: DetectedChange[] = [];
   const seen = new Set<string>();
 
   for (const line of lines) {
-    let trimmed = line.trim();
-    if (!trimmed) continue;
-
-    // Handle lines with inline SQL after comments
-    // "-- header -- desc ALTER TABLE..." → extract "ALTER TABLE..."
-    if (trimmed.startsWith("--")) {
-      const lastComment = trimmed.lastIndexOf("--");
-      if (lastComment > 0) {
-        trimmed = trimmed.substring(lastComment + 2).trim();
-      } else {
-        continue; // pure comment line
-      }
-    } else {
-      // Strip inline comments: "ALTER TABLE x -- comment" → "ALTER TABLE x"
-      const commentIdx = trimmed.indexOf("--");
-      if (commentIdx !== -1) {
-        trimmed = trimmed.substring(0, commentIdx).trim();
-      }
-    }
-
+    const trimmed = line.trim();
     if (!trimmed) continue;
 
     for (const rule of DETECTION_RULES) {

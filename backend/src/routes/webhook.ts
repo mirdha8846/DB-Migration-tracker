@@ -102,7 +102,8 @@ router.post("/webhook/github", async (req: Request, res: Response) => {
 
       if (detectedChanges.length === 0) {
         console.log(`⚠️ No SQL patterns detected in: ${file.filename} (${fileContent.length} bytes)`);
-        console.log(`   Preview: ${fileContent.substring(0, 150).replace(/\n/g, " ")}`);
+        // Log the EXACT content (first 500 chars, showing newlines)
+        console.log(`   Raw content: ${JSON.stringify(fileContent.substring(0, 500))}`);
         continue;
       }
 
